@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from core import (  # noqa: E402
+    cleanup_cuts,
     collect_silences,
     drop_hallucinated_words,
     find_retake_cuts,
@@ -67,6 +68,10 @@ def main() -> None:
         return
 
     cut_ranges = [(c["startMs"], c["endMs"]) for c in approved]
+    total_ms = sum(s["durationMs"] for s in sessions)
+    cut_ranges, absorbed = cleanup_cuts(cut_ranges, total_ms, words)
+    if absorbed:
+        print(f"cleanup: absorbed {len(absorbed)} wordless fragments")
     write_cut_package(src, cut_ranges, args.output, "-retakes")
 
 

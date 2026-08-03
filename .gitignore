@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+*.transcript.json
+*.screenstudio/
+*-clean.mp4
+.DS_Store

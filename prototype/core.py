@@ -27,6 +27,28 @@ def new_id() -> str:
     return "".join(random.choices(string.ascii_letters + string.digits, k=10))
 
 
+# ---------- pacing ----------
+# one knob for how rigorous silence cutting is. three levers move together:
+# min_silence (how long a gap must be to cut), pad (breathing room kept around
+# speech - the residual pause after a cut is 2x this), and min_keep (wordless
+# fragments shorter than this are absorbed by cleanup_cuts).
+
+PACING_PRESETS = {
+    "tight": {"min_silence": 0.35, "pad": 0.08, "min_keep": 2.0},
+    "balanced": {"min_silence": 0.6, "pad": 0.15, "min_keep": 1.5},
+    "relaxed": {"min_silence": 1.2, "pad": 0.3, "min_keep": 0.8},
+}
+
+
+def resolve_pacing(args) -> None:
+    # fill unset (None) pacing-related args from the chosen preset;
+    # explicitly passed flags always win over the preset
+    preset = PACING_PRESETS[args.pacing]
+    for key, value in preset.items():
+        if hasattr(args, key) and getattr(args, key) is None:
+            setattr(args, key, value)
+
+
 # ---------- sessions ----------
 # a session is {"path": Path, "durationMs": float}. multi-session recordings
 # (screen studio pause/resume) concatenate on one timeline; an mp4 is one session.
@@ -266,6 +288,39 @@ def invert_cuts(cuts: list[tuple[float, float]], total_ms: float) -> list[tuple[
     if total_ms - pos >= MIN_SLICE_MS:
         keeps.append((pos, total_ms))
     return keeps
+
+
+def cleanup_cuts(
+    cuts: list[tuple[float, float]],
+    total_ms: float,
+    words: list[dict] | None = None,
+    min_keep_ms: float = 1500.0,
+    min_keep_wordless_ms: float = 400.0,
+) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
+    # final cleanup pass over an approved cut list: absorb tiny kept fragments
+    # between cuts that carry no speech (breaths, mouth clicks, chair noise).
+    # these survive silence detection because they have energy, but they chop
+    # the timeline into micro-slices that add nothing.
+    # with a transcript: any keep shorter than min_keep_ms containing no word
+    # is absorbed; longer wordless keeps survive (deliberate on-screen action).
+    # without a transcript: only keeps shorter than min_keep_wordless_ms are
+    # absorbed, since speech can't be ruled out.
+    # returns (cleaned cuts, absorbed fragments for reporting).
+    merged = merge_ranges(cuts)
+    absorbed = []
+    for k_start, k_end in invert_cuts(merged, total_ms):
+        if words is None:
+            wordless, threshold = True, min_keep_wordless_ms
+        else:
+            wordless = not any(
+                w["endMs"] > k_start and w["startMs"] < k_end for w in words
+            )
+            threshold = min_keep_ms
+        if wordless and k_end - k_start < threshold:
+            absorbed.append((k_start, k_end))
+    if not absorbed:
+        return merged, []
+    return merge_ranges(merged + absorbed), absorbed
 
 
 def subtract_cuts(slices: list[dict], cuts: list[tuple[float, float]]) -> list[dict]:

@@ -35,6 +35,7 @@ from core import (  # noqa: E402
     versioned_output,
     words_to_sentences,
 )
+from fcpxml import write_fcpxml  # noqa: E402
 
 
 def probe(video: Path) -> tuple[float, bool]:
@@ -96,6 +97,9 @@ def main() -> None:
                     help="approve silence cuts one by one instead of as a batch")
     ap.add_argument("--yes", action="store_true", help="approve all cuts without asking")
     ap.add_argument("--dry-run", action="store_true", help="detect and review only, write nothing")
+    ap.add_argument("--export", choices=["mp4", "fcpxml"], default="mp4",
+                    help="mp4 renders the cut video; fcpxml writes a final cut pro "
+                         "timeline referencing the original media (no re-encode)")
     ap.add_argument("--output", type=Path, default=None, help="output video path")
     args = ap.parse_args()
     resolve_pacing(args)
@@ -111,6 +115,7 @@ def main() -> None:
 
     silences = collect_silences(sessions, args.noise, args.min_silence)
     approved_ranges: list[tuple[float, float]] = []
+    approved_retakes: list[dict] = []
     words: list[dict] | None = None
     interactive = sys.stdin.isatty() and not args.yes
 
@@ -124,8 +129,8 @@ def main() -> None:
         print(f"transcript sentences: {len(sentences)}")
         retakes = find_retake_cuts(sentences, args.window, args.threshold, args.pre_roll * 1000)
         print(f"proposed retake cuts: {len(retakes)}")
-        approved = review_cuts(retakes, args.yes) if retakes else []
-        approved_ranges += [(c["startMs"], c["endMs"]) for c in approved]
+        approved_retakes = review_cuts(retakes, args.yes) if retakes else []
+        approved_ranges += [(c["startMs"], c["endMs"]) for c in approved_retakes]
 
     # silence cuts: batch approval by default (there are usually hundreds)
     if not args.no_silences:
@@ -167,6 +172,15 @@ def main() -> None:
           f"(saved {duration_ms / 1000 - kept_s:.1f}s)")
     if args.dry_run:
         print("dry run - nothing written")
+        return
+
+    if args.export == "fcpxml":
+        dst = versioned_output(args.output or src.with_name(f"{src.stem}-clean.fcpxml"), src)
+        markers = [
+            (c["endMs"], f"retake removed, kept: {c.get('kept', '')[:80]}")
+            for c in approved_retakes
+        ]
+        write_fcpxml(src, keeps, dst, duration_ms, markers)
         return
 
     dst = versioned_output(args.output or src.with_name(f"{src.stem}-clean{src.suffix}"), src)

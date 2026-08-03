@@ -1,5 +1,5 @@
 # cut silences from a .screenstudio project by rewriting project.json slices.
-# usage: uv run cut_silences.py <path/to/project.screenstudio> [--noise -35] [--min-silence 0.6] [--pad 0.15]
+# usage: uv run cut_silences.py <path/to/project.screenstudio> [--pacing balanced] [--min-silence 0.6]
 # thin adapter: detection lives in core.py, package i/o in screenstudio.py.
 
 import argparse
@@ -18,7 +18,10 @@ def main() -> None:
                     help="how rigorous silence cutting is: tight cuts hard, relaxed embraces pauses")
     ap.add_argument("--noise", type=float, default=-35.0, help="silence threshold in dB")
     ap.add_argument("--min-silence", type=float, default=None, help="min silence duration in seconds")
-    ap.add_argument("--pad", type=float, default=None, help="padding kept on each side of speech, seconds")
+    ap.add_argument("--trail", type=float, default=None,
+                    help="silence kept after speech ends at a cut, seconds")
+    ap.add_argument("--lead", type=float, default=None,
+                    help="silence kept before speech resumes at a cut, seconds")
     ap.add_argument("--output", type=Path, default=None, help="output package path")
     args = ap.parse_args()
     resolve_pacing(args)
@@ -33,7 +36,7 @@ def main() -> None:
     silences = collect_silences(sessions, args.noise, args.min_silence)
     print(f"raw silences detected: {len(silences)}")
 
-    cuts = silence_cuts(silences, args.pad * 1000)
+    cuts = silence_cuts(silences, args.trail * 1000, args.lead * 1000, total_s * 1000)
     print(f"cuts after padding: {len(cuts)}")
 
     # no transcript here, so only ultra-short fragments are absorbed;

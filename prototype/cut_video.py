@@ -82,7 +82,10 @@ def main() -> None:
                     help="how rigorous silence cutting is: tight cuts hard, relaxed embraces pauses")
     ap.add_argument("--noise", type=float, default=-35.0, help="silence threshold in dB")
     ap.add_argument("--min-silence", type=float, default=None, help="min silence duration in seconds")
-    ap.add_argument("--pad", type=float, default=None, help="padding kept on each side of speech, seconds")
+    ap.add_argument("--trail", type=float, default=None,
+                    help="silence kept after speech ends at a cut, seconds")
+    ap.add_argument("--lead", type=float, default=None,
+                    help="silence kept before speech resumes at a cut, seconds")
     ap.add_argument("--window", type=float, default=60.0,
                     help="max seconds between a bad take and its redo")
     ap.add_argument("--threshold", type=float, default=0.75,
@@ -134,7 +137,7 @@ def main() -> None:
 
     # silence cuts: batch approval by default (there are usually hundreds)
     if not args.no_silences:
-        cuts = silence_cuts(silences, args.pad * 1000)
+        cuts = silence_cuts(silences, args.trail * 1000, args.lead * 1000, duration_ms)
         total_s = sum(e - s for s, e in cuts) / 1000
         print(f"\nproposed silence cuts: {len(cuts)}, total {total_s:.1f}s")
         if args.review_silences:

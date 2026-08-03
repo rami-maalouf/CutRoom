@@ -28,15 +28,18 @@ def new_id() -> str:
 
 
 # ---------- pacing ----------
-# one knob for how rigorous silence cutting is. three levers move together:
-# min_silence (how long a gap must be to cut), pad (breathing room kept around
-# speech - the residual pause after a cut is 2x this), and min_keep (wordless
-# fragments shorter than this are absorbed by cleanup_cuts).
+# one knob for how rigorous silence cutting is. pacing decides WHICH pauses get
+# cut (min_silence) and what cleanup absorbs (min_keep). it deliberately does
+# NOT decide how a cut sounds: once a pause is cut, the boundary is tight for
+# every preset - a short natural trail after speech ends (trail) and almost
+# nothing before speech resumes (lead). residual pause = trail + lead.
+# asymmetry is intentional: trailing silence feels human, leading silence
+# feels dead.
 
 PACING_PRESETS = {
-    "tight": {"min_silence": 0.35, "pad": 0.08, "min_keep": 2.0},
-    "balanced": {"min_silence": 0.6, "pad": 0.15, "min_keep": 1.5},
-    "relaxed": {"min_silence": 1.2, "pad": 0.3, "min_keep": 0.8},
+    "tight": {"min_silence": 0.35, "trail": 0.12, "lead": 0.05, "min_keep": 2.0},
+    "balanced": {"min_silence": 0.6, "trail": 0.2, "lead": 0.08, "min_keep": 1.5},
+    "relaxed": {"min_silence": 1.2, "trail": 0.28, "lead": 0.1, "min_keep": 0.8},
 }
 
 
@@ -88,11 +91,19 @@ def collect_silences(
     return silences
 
 
-def silence_cuts(silences: list[tuple[float, float]], pad_ms: float) -> list[tuple[float, float]]:
-    # shrink each silence by pad on both sides; keep only if still a real gap
+def silence_cuts(
+    silences: list[tuple[float, float]],
+    trail_ms: float,
+    lead_ms: float,
+    total_ms: float | None = None,
+) -> list[tuple[float, float]]:
+    # shrink each silence asymmetrically: keep `trail` after speech ends and
+    # `lead` before speech resumes. silences at the very start/end of the
+    # recording trim flush - there is no speech to trail from or lead into.
     cuts = []
     for s, e in silences:
-        s2, e2 = s + pad_ms, e - pad_ms
+        s2 = s if s <= 1 else s + trail_ms
+        e2 = e if (total_ms is not None and e >= total_ms - 1) else e - lead_ms
         if e2 - s2 >= 200:
             cuts.append((s2, e2))
     return cuts

@@ -22,12 +22,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from core import (  # noqa: E402
+    cleanup_cuts,
     collect_silences,
     drop_hallucinated_words,
     find_retake_cuts,
     invert_cuts,
     merge_ranges,
     review_cuts,
+    resolve_pacing,
     silence_cuts,
     transcribe_sessions,
     versioned_output,
@@ -75,15 +77,19 @@ def render(video: Path, keeps: list[tuple[float, float]], dst: Path) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("video", type=Path)
+    ap.add_argument("--pacing", choices=["tight", "balanced", "relaxed"], default="balanced",
+                    help="how rigorous silence cutting is: tight cuts hard, relaxed embraces pauses")
     ap.add_argument("--noise", type=float, default=-35.0, help="silence threshold in dB")
-    ap.add_argument("--min-silence", type=float, default=0.6, help="min silence duration in seconds")
-    ap.add_argument("--pad", type=float, default=0.15, help="padding kept on each side of speech, seconds")
+    ap.add_argument("--min-silence", type=float, default=None, help="min silence duration in seconds")
+    ap.add_argument("--pad", type=float, default=None, help="padding kept on each side of speech, seconds")
     ap.add_argument("--window", type=float, default=60.0,
                     help="max seconds between a bad take and its redo")
     ap.add_argument("--threshold", type=float, default=0.75,
                     help="opening-words similarity 0..1 to count as a retake")
     ap.add_argument("--pre-roll", type=float, default=0.1,
                     help="seconds kept before the final take's first word")
+    ap.add_argument("--min-keep", type=float, default=None,
+                    help="wordless kept fragments shorter than this (seconds) are absorbed into cuts")
     ap.add_argument("--no-retakes", action="store_true", help="skip retake detection")
     ap.add_argument("--no-silences", action="store_true", help="skip silence cutting")
     ap.add_argument("--review-silences", action="store_true",
@@ -92,6 +98,7 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="detect and review only, write nothing")
     ap.add_argument("--output", type=Path, default=None, help="output video path")
     args = ap.parse_args()
+    resolve_pacing(args)
 
     src = args.video.resolve()
     if not src.is_file():
@@ -104,6 +111,7 @@ def main() -> None:
 
     silences = collect_silences(sessions, args.noise, args.min_silence)
     approved_ranges: list[tuple[float, float]] = []
+    words: list[dict] | None = None
     interactive = sys.stdin.isatty() and not args.yes
 
     # retake cuts: reviewed one by one, they carry semantic content
@@ -141,7 +149,18 @@ def main() -> None:
     if not approved_ranges:
         print("no cuts approved - nothing to do")
         return
-    keeps = invert_cuts(merge_ranges(approved_ranges), duration_ms)
+
+    # cleanup layer: absorb tiny wordless fragments left between approved cuts
+    final_cuts, absorbed = cleanup_cuts(
+        approved_ranges, duration_ms, words, args.min_keep * 1000
+    )
+    if absorbed:
+        gone = sum(e - s for s, e in absorbed) / 1000
+        print(f"cleanup: absorbed {len(absorbed)} wordless fragments ({gone:.1f}s)")
+        for s, e in absorbed:
+            print(f"  absorbed {s / 1000:8.2f}s -> {e / 1000:8.2f}s  ({(e - s) / 1000:.2f}s)")
+
+    keeps = invert_cuts(final_cuts, duration_ms)
     kept_s = sum(e - s for s, e in keeps) / 1000
     print(f"\nfinal: {len(keeps)} kept segments, "
           f"{duration_ms / 1000:.1f}s -> {kept_s:.1f}s "

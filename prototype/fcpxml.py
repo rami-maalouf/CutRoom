@@ -29,6 +29,23 @@ def probe_media(video: Path) -> dict:
     return info
 
 
+# fcp maps <format> resources onto its internal catalog; an unnamed format it
+# can't map triggers "Encountered an unexpected value" on every element that
+# references it. name the format explicitly when the source matches a known
+# fcp video format, and use fcp's canonical frameDuration spelling.
+FCP_RATES = {
+    (24000, 1001): ("2398", "1001/24000s"),
+    (24, 1): ("24", "100/2400s"),
+    (25, 1): ("25", "100/2500s"),
+    (30000, 1001): ("2997", "1001/30000s"),
+    (30, 1): ("30", "100/3000s"),
+    (50, 1): ("50", "100/5000s"),
+    (60000, 1001): ("5994", "1001/60000s"),
+    (60, 1): ("60", "100/6000s"),
+}
+FCP_SIZES = {(1920, 1080): "1080", (1280, 720): "720", (3840, 2160): "3840x2160"}
+
+
 def write_fcpxml(
     video: Path,
     keeps: list[tuple[float, float]],
@@ -41,6 +58,13 @@ def write_fcpxml(
     # to the source frame rate so import produces no boundary warnings
     m = probe_media(video)
     num, den = m["fps_num"], m["fps_den"]
+
+    rate = FCP_RATES.get((num, den))
+    size = FCP_SIZES.get((m["width"], m["height"]))
+    frame_duration = rate[1] if rate else f"{den}/{num}s"
+    format_name = (
+        f' name="FFVideoFormat{size}p{rate[0]}"' if rate and size else ""
+    )
 
     def frames(ms: float) -> int:
         return round(ms / 1000 * num / den)
@@ -65,11 +89,13 @@ def write_fcpxml(
                     f'\n            <marker start={quoteattr(t(max(m_fr, start_fr)))} '
                     f'duration={quoteattr(t(1))} value={quoteattr(m_text)}/>'
                 )
+        # no format/tcFormat here: asset-clips inherit both from the asset,
+        # and redundant copies are extra surface for fcp's semantic checks
         clips.append(
             f'          <asset-clip ref="r2" offset="{t(offset_fr)}" '
             f'start="{t(start_fr)}" duration="{t(dur_fr)}" '
             f'name={quoteattr(f"{video.stem} {k_start / 1000:.1f}s")} '
-            f'format="r1" tcFormat="NDF" audioRole="dialogue">{marker_xml}\n'
+            f'audioRole="dialogue">{marker_xml}\n'
             f'          </asset-clip>'
         )
         offset_fr += dur_fr
@@ -79,7 +105,7 @@ def write_fcpxml(
 <!DOCTYPE fcpxml>
 <fcpxml version="1.10">
   <resources>
-    <format id="r1" frameDuration="{den}/{num}s" width="{m['width']}" height="{m['height']}"/>
+    <format id="r1"{format_name} frameDuration="{frame_duration}" width="{m['width']}" height="{m['height']}"/>
     <asset id="r2" name={quoteattr(video.stem)} start="0s" duration="{t(frames(total_ms))}"
            hasVideo="1" hasAudio="1" format="r1" audioSources="1"
            audioChannels="{m['audio_channels']}" audioRate="{m['audio_rate']}">

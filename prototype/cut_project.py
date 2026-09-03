@@ -8,7 +8,9 @@
 #
 # usage: uv run cut_project.py <path/to/project.screenstudio> [--yes] [--dry-run]
 # retake cuts are approved one by one (removed vs kept text); silence cuts are
-# approved as a batch (use --review-silences for one-by-one).
+# approved as a batch (use --review-silences for one-by-one). retakes the
+# detector misses (redo with different opening words) can be passed by hand
+# with --cut START-END (seconds, repeatable); they are reviewed like retakes.
 # writes <name>-clean.screenstudio next to the original; never overwrites.
 
 import argparse
@@ -31,6 +33,18 @@ from core import (  # noqa: E402
 from screenstudio import check_package, mic_sessions, write_cut_package  # noqa: E402
 
 
+def parse_cut(spec: str, total_ms: float) -> dict:
+    # "START-END" in seconds -> cut dict on the source timeline
+    try:
+        start_s, end_s = (float(x) for x in spec.split("-", 1))
+    except ValueError:
+        sys.exit(f"bad --cut value {spec!r}, expected START-END in seconds")
+    start_ms, end_ms = start_s * 1000, end_s * 1000
+    if not 0 <= start_ms < end_ms <= total_ms:
+        sys.exit(f"--cut {spec} is outside the recording (0-{total_ms / 1000:.2f}s)")
+    return {"startMs": start_ms, "endMs": end_ms, "reason": "manual"}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("project", type=Path)
@@ -50,6 +64,8 @@ def main() -> None:
                     help="seconds kept before the final take's first word")
     ap.add_argument("--min-keep", type=float, default=None,
                     help="wordless kept fragments shorter than this (seconds) are absorbed into cuts")
+    ap.add_argument("--cut", action="append", default=[], metavar="START-END",
+                    help="manual cut range in seconds (e.g. 43.45-86.8), repeatable")
     ap.add_argument("--no-retakes", action="store_true", help="skip retake detection")
     ap.add_argument("--no-silences", action="store_true", help="skip silence cutting")
     ap.add_argument("--review-silences", action="store_true",
@@ -83,6 +99,13 @@ def main() -> None:
         retakes = find_retake_cuts(sentences, args.window, args.threshold, args.pre_roll * 1000)
         print(f"proposed retake cuts: {len(retakes)}")
         approved = review_cuts(retakes, args.yes) if retakes else []
+        approved_ranges += [(c["startMs"], c["endMs"]) for c in approved]
+
+    # manual cuts: retakes the detector missed, reviewed like retakes
+    if args.cut:
+        manual = [parse_cut(c, total_ms) for c in args.cut]
+        print(f"\nmanual cuts: {len(manual)}")
+        approved = review_cuts(manual, args.yes)
         approved_ranges += [(c["startMs"], c["endMs"]) for c in approved]
 
     # silence cuts: batch approval by default (there are usually hundreds)

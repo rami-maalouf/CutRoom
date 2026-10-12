@@ -14,9 +14,11 @@ import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 from .core import words_to_sentences
+from .project import check_ignore
 
 MEDIA_SUFFIXES = {".mp4", ".mov", ".m4v", ".mkv", ".mts"}
 WORKDIR = "cutroom"
@@ -26,12 +28,24 @@ def workdir(folder: Path) -> Path:
     return folder / WORKDIR
 
 
+def ignore_patterns(folder: Path) -> list[str]:
+    # the project file's "ignore": patterns for files that are not footage
+    # (a lower-quality copy, a re-export), matched against the clip path
+    path = workdir(folder) / "cutroom.json"
+    if not path.exists():
+        return []
+    return check_ignore(json.loads(path.read_text(encoding="utf-8")).get("ignore", []), path)
+
+
 def media_files(folder: Path) -> list[Path]:
-    # every video under the folder, except cutroom's own outputs and hidden files
+    # every video under the folder, except cutroom's own outputs, hidden files and ignored files
+    ignore = ignore_patterns(folder)
     out = []
     for path in folder.rglob("*"):
         rel = path.relative_to(folder)
         if rel.parts[0] == WORKDIR or any(p.startswith(".") for p in rel.parts):
+            continue
+        if any(fnmatchcase(rel.as_posix(), pattern) for pattern in ignore):
             continue
         if path.is_file() and path.suffix.lower() in MEDIA_SUFFIXES:
             out.append(path)

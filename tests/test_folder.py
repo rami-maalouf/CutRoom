@@ -58,6 +58,22 @@ def test_clips_are_ordered_by_capture_time_and_digested(shoot):
     assert len(list((shoot / "cutroom" / "digest").glob("shard-*.md"))) == 2
 
 
+def test_ignored_files_are_not_footage(shoot):
+    # a lower-quality copy of a clip is not a second clip
+    shutil.copy(shoot / "cam" / "a.mp4", shoot / "cam" / "a-bad-quality.mp4")
+    save(shoot, ignore=["*-bad-quality.mp4"])
+    main(["digest", str(shoot), "--shards", "1"])
+    digest = (shoot / "cutroom" / "digest" / "all.md").read_text(encoding="utf-8")
+    assert "## cam/a.mp4" in digest and "bad-quality" not in digest
+    save(shoot, ignore=["*-bad-quality.mp4"],
+         selects=[{"id": "V1", "clip": "cam/a-bad-quality.mp4", "start": 0.0, "end": 2.0}])
+    with pytest.raises(SystemExit, match="or is ignored"):
+        main(["review", str(shoot)])
+    save(shoot, ignore="*-bad-quality.mp4")
+    with pytest.raises(SystemExit, match="ignore must be a list"):
+        main(["review", str(shoot)])
+
+
 def test_selects_make_a_vlog_in_their_own_order(shoot):
     save(shoot, selects=[
         {"id": "V1", "clip": "cam/a.mp4", "start": 4.0, "end": 6.0, "chapter": "Afternoon"},

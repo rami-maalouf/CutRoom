@@ -28,6 +28,8 @@ Measured on the Hack the North run (101 clips, 3.9 h of 4K HEVC, an M-series Mac
 
 ### 2. Digest
 
+First list the folder's videos. A copy of a clip (a `-bad-quality.mp4` export, a re-encode, the same length as another clip) is not footage: add it to the project file's `"ignore"` (`["*-bad-quality.mp4"]`) before the digest, or it is transcribed and logged twice. DJI `.LRF` proxies and photos are skipped anyway.
+
 ```bash
 cutroom digest <folder> --shards 5
 ```

@@ -8,6 +8,8 @@
 #   selects      folders: the vlog, an ordered list of moments     (V1, V2, ...)
 #   shorts       short-form candidates                             (S1, S2, ...)
 #   style        "talking-head" or "vlog" (default: vlog for a folder)
+#   ignore       folders: patterns for files that are not footage, e.g.
+#                "*-bad-quality.mp4" (matched against the path inside the folder)
 #
 # selects and shorts may carry "beat", "role" and "intent" (from the story) and
 # "raw": true, which plays the moment as it happened: no silence or retake
@@ -76,6 +78,12 @@ def _as_range(item) -> dict:
     return item
 
 
+def check_ignore(ignore, path: Path) -> list[str]:
+    if not (isinstance(ignore, list) and all(isinstance(p, str) for p in ignore)):
+        sys.exit(f"{path.name}: ignore must be a list of patterns like [\"*-bad-quality.mp4\"], got {ignore!r}")
+    return ignore
+
+
 def validate(data: dict, path: Path, clips: set[str] | None) -> None:
     def check_range(r: dict, where: str) -> None:
         if not (isinstance(r.get("start"), (int, float)) and isinstance(r.get("end"), (int, float))
@@ -85,10 +93,11 @@ def validate(data: dict, path: Path, clips: set[str] | None) -> None:
             if "clip" not in r:
                 sys.exit(f"{path.name}: {where} needs a \"clip\" (a path inside the folder)")
             if r["clip"] not in clips:
-                sys.exit(f"{path.name}: {where} names clip {r['clip']!r}, which is not in the folder")
+                sys.exit(f"{path.name}: {where} names clip {r['clip']!r}, which is not in the folder (or is ignored)")
         elif "clip" in r:
             sys.exit(f"{path.name}: {where} names a clip, but the source is a single file")
 
+    check_ignore(data.get("ignore", []), path)
     if data.get("style") not in STYLES:
         sys.exit(f"{path.name}: style must be one of {', '.join(STYLES)}, got {data.get('style')!r}")
     for item in data["selects"] + data["shorts"]:

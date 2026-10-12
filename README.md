@@ -116,6 +116,7 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
 - **edits.cuts** become manual decisions `M1`, `M2`, ...; **edits.keeps** are never cut (a keep overlapping a retake rejects it).
 - **selects** (`V1`...) are the program in play order, with the story's `chapter`, `beat`, `role` and `intent`. Without selects, the program is the clean cut in recorded order.
 - **shorts** (`S1`...) are short-form candidates, exported from the clean cut.
+- **ignore** (folders) lists patterns for files that are not footage, such as `["*-bad-quality.mp4"]` for a lower-quality copy of a clip. They match the path inside the folder. DJI `.LRF` proxies and photos are skipped anyway (only `.mp4`, `.mov`, `.m4v`, `.mkv` and `.mts` are clips).
 - For a single file, leave out `clip` (and the short list form `[start, end, note]` still works).
 
 ## The review page

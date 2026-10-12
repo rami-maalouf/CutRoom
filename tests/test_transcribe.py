@@ -31,3 +31,15 @@ def test_cache_versions(tmp_path):
     assert load_cache(cache) is None
     cache.write_text(json.dumps({"v": CACHE_VERSION, "words": [{"word": "é"}]}), encoding="utf-8")
     assert load_cache(cache) == [{"word": "é"}]
+
+
+def test_audio_is_decoded_to_16k_mono_float_by_ffmpeg(tmp_path):
+    from conftest import make_audio, needs_ffmpeg
+    from cutroom.transcribe import load_audio_16k
+
+    if needs_ffmpeg.args[0]:
+        pytest.skip("ffmpeg not installed")
+    samples = load_audio_16k(make_audio(tmp_path / "a.m4a", [("tone", 1), ("silence", 1)]))
+    assert samples.dtype.name == "float32"
+    assert abs(len(samples) - 32000) < 1600
+    assert abs(samples[:8000]).max() > 0.1 and abs(samples[-4000:]).max() < 0.01

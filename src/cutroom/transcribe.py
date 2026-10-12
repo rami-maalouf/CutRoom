@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import platform
+import subprocess
 import sys
 from pathlib import Path
 
@@ -58,9 +59,22 @@ def _faster_whisper_model():
     return WhisperModel(FASTER_WHISPER_MODEL, device="auto", compute_type="auto")
 
 
+def load_audio_16k(path: Path):
+    # mono 16 khz float32 samples, decoded by ffmpeg exactly like mlx-whisper
+    # does. faster-whisper's own decoder (pyav) breaks across pyav releases.
+    import numpy as np
+
+    out = subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:a:0",
+         "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
+        capture_output=True, check=True,
+    ).stdout
+    return np.frombuffer(out, np.float32)
+
+
 def _faster_whisper_words(path: Path):
     segments, _info = _faster_whisper_model().transcribe(
-        str(path), word_timestamps=True, condition_on_previous_text=False,
+        load_audio_16k(path), word_timestamps=True, condition_on_previous_text=False,
     )
     for seg in segments:
         for w in seg.words or []:

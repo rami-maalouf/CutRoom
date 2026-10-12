@@ -73,3 +73,17 @@ def test_story_tab_renders_the_outline(shoot):
 
 def test_markdown_escapes_html():
     assert "&lt;script&gt;" in markdown("a <script> b")
+
+
+def test_story_order_keeps_beats_and_their_fields(shoot):
+    cand = shoot / "cutroom" / "candidates"
+    cand.mkdir(parents=True)
+    (cand / "part-1.json").write_text(json.dumps([
+        {"clip": "cam/a.mp4", "start": 4.0, "end": 5.9, "chapter": "Cold open", "beat": "hook", "role": "hook", "raw": True},
+        {"clip": "phone/c.mov", "start": 0.0, "end": 1.9, "chapter": "Morning", "beat": "arrival", "role": "setup",
+         "intent": "open the day"},
+    ]))
+    main(["candidates", str(shoot), "--write-selects", "--story-order"])
+    selects = json.loads(project.project_path(shoot).read_text())["selects"]
+    assert [s["clip"] for s in selects] == ["cam/a.mp4", "phone/c.mov"]  # not capture order
+    assert selects[0]["raw"] is True and selects[1]["intent"] == "open the day"

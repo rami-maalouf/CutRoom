@@ -368,8 +368,12 @@ def run_candidates(args) -> None:
                 found.append({**c, "end": min(c["end"], durations[c["clip"]]), "file": path.name})
     for p in problems:
         print(f"  skipped {p}")
-    found.sort(key=lambda c: (order[c["clip"]], c["start"]))
-    print(f"{len(found)} candidates from {len(files)} files ({len(problems)} skipped)\n")
+    if not args.story_order:
+        # free-standing highlights play in capture order; story-filled
+        # candidates keep their files' order (part-1, part-2, ... then list order)
+        found.sort(key=lambda c: (order[c["clip"]], c["start"]))
+    print(f"{len(found)} candidates from {len(files)} files ({len(problems)} skipped), "
+          f"{sum(c['end'] - c['start'] for c in found) / 60:.1f} min raw\n")
     for score in range(10, 0, -1):
         chosen = [c for c in found if c.get("score", 0) >= score]
         if chosen:
@@ -377,17 +381,21 @@ def run_candidates(args) -> None:
     if not args.write_selects:
         print("\nadd --write-selects --min-score N to turn them into selects (replaces the current selects)")
         return
-    chosen = [c for c in found if c.get("score", 0) >= args.min_score]
+    # a candidate without a score was placed by a story, not ranked: always keep it
+    chosen = [c for c in found if c.get("score", args.min_score) >= args.min_score]
     merged: list[dict] = []
-    for c in chosen:  # overlapping or touching moments in one clip become one select
+    for c in chosen:  # consecutive overlapping moments in one clip and beat become one select
         last = merged[-1] if merged else None
-        if last and last["clip"] == c["clip"] and c["start"] <= last["end"] + 0.5:
+        if (last and last["clip"] == c["clip"] and last.get("beat") == c.get("beat")
+                and last["start"] - 0.5 <= c["start"] <= last["end"] + 0.5):
             last["end"] = max(last["end"], c["end"])
             last["title"] = f"{last['title']} / {c.get('title', '')}".strip(" /")
             continue
-        merged.append({"clip": c["clip"], "start": round(c["start"], 2), "end": round(c["end"], 2),
-                       "chapter": c.get("chapter", ""), "title": c.get("title", ""),
-                       "why": c.get("why", ""), "score": c.get("score")})
+        select = {"clip": c["clip"], "start": round(c["start"], 2), "end": round(c["end"], 2)}
+        for key in ("chapter", "beat", "role", "raw", "intent", "title", "why", "score"):
+            if c.get(key) not in (None, ""):
+                select[key] = c[key]
+        merged.append(select)
     data = project.load(src, set(durations))
     data["selects"] = [{"id": f"V{i}", **m} for i, m in enumerate(merged, 1)]
     path = project.save(src, data)
@@ -528,6 +536,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("folder", type=Path)
     p.add_argument("--min-score", type=int, default=7, help="keep candidates scored at least this")
     p.add_argument("--write-selects", action="store_true", help="replace the selects with the kept candidates")
+    p.add_argument("--story-order", action="store_true",
+                   help="keep the candidate files' own order (filled from a story) instead of capture order")
     p.set_defaults(run=run_candidates)
 
     p = sub.add_parser("export", help="export the vlog (a folder's selects), shorts (S1 ...) or selects (V1 ...)")

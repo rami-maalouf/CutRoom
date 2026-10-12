@@ -83,11 +83,11 @@ def test_chunked_render_keeps_audio_in_sync_across_chunk_joins(tmp_path):
 
 
 def flash_and_beep_onsets(path):
-    # filter arguments treat ":" as a separator (windows drive letters), so escape it
-    movie = path.as_posix().replace(":", "\\:")
-    out = subprocess.run(["ffprobe", "-v", "error", "-f", "lavfi", f"movie={movie},signalstats",
+    # filter arguments treat ":" as a separator, so run next to the file and pass
+    # only its name (a windows drive letter would break the movie= argument)
+    out = subprocess.run(["ffprobe", "-v", "error", "-f", "lavfi", f"movie={path.name},signalstats",
                           "-show_entries", "frame=pts_time:frame_tags=lavfi.signalstats.YAVG", "-of", "json"],
-                         capture_output=True, text=True, check=True).stdout
+                         capture_output=True, text=True, check=True, cwd=path.parent).stdout
     frames = [(float(f["pts_time"]), float(f["tags"]["lavfi.signalstats.YAVG"]))
               for f in json.loads(out)["frames"]]
     flashes = [t for (t, y), (_, prev) in zip(frames[1:], frames) if y > 128 >= prev]

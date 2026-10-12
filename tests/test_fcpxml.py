@@ -80,3 +80,12 @@ def test_output_validates_against_final_cut_pro_dtd(tmp_path):
     result = subprocess.run(["xmllint", "--noout", "--dtdvalid", str(dtd), str(dst)],
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_file_uris_become_local_paths():
+    from cutroom.fcpxml import uri_to_path
+    import sys
+    if sys.platform == "win32":
+        assert str(uri_to_path("file:///C:/Clips/a%20b.mp4")) == r"C:\Clips\a b.mp4"
+    else:
+        assert str(uri_to_path("file:///Users/me/a%20b.mp4")) == "/Users/me/a b.mp4"

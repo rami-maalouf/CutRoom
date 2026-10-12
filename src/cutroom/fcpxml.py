@@ -11,7 +11,9 @@ import sys
 import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+import os
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 from xml.sax.saxutils import escape, quoteattr
 
 from .core import Range, merge_ranges
@@ -226,17 +228,27 @@ def _time(value: str | None) -> Fraction:
     return Fraction(value.rstrip("s"))
 
 
+def uri_to_path(uri: str) -> Path:
+    # file:///C:/x%20y.mp4 -> C:\\x y.mp4 on windows, /x y.mp4 elsewhere
+    return Path(url2pathname(urlparse(uri).path))
+
+
+def _same_file_key(path: Path) -> str:
+    # windows paths are case-insensitive and may arrive as 8.3 short names
+    return os.path.normcase(str(path.resolve()))
+
+
 def read_keeps(timeline: Path, media: Path) -> list[Range]:
     # the source ranges (ms) a final cut pro timeline uses from one media file,
     # in timeline order. this is how edits made by hand in fcp come back: fcp
     # exports the project (file > export xml) and these ranges become the cut.
     root = ET.parse(timeline).getroot()
-    target = media.resolve()
+    target = _same_file_key(media)
     assets = {}
     for asset in root.iter("asset"):
         rep = asset.find("media-rep")
         src = rep.get("src") if rep is not None else asset.get("src")
-        if src and Path(unquote(urlparse(src).path)).resolve() == target:
+        if src and _same_file_key(uri_to_path(src)) == target:
             assets[asset.get("id")] = _time(asset.get("start"))
     if not assets:
         sys.exit(f"{timeline.name} does not reference {media.name}")

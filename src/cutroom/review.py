@@ -119,8 +119,8 @@ PAGE = r"""<!doctype html>
   .seg.rejected { background: transparent; outline: 1.5px dashed var(--rejected); outline-offset: -1.5px; }
   .seg.protect { background: var(--protect); opacity: .55; }
   .seg.program { color: #fff; font-size: 10px; font-weight: 600; padding-left: 4px; line-height: 22px;
-                 overflow: hidden; white-space: nowrap; }
-  .seg.select-start { box-shadow: inset 1px 0 0 rgba(255, 255, 255, .9); }
+                 overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .seg.select-line { width: 1px !important; top: auto; height: 5px; background: rgba(255, 255, 255, .85); }
   .chapter { margin: 16px 2px 2px; font-size: 12px; font-weight: 600; color: var(--muted);
              text-transform: none; letter-spacing: .01em; }
   .item.dropped { opacity: .5; }
@@ -131,7 +131,7 @@ PAGE = r"""<!doctype html>
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   aside { display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 150px); }
   .tabs { display: flex; gap: 4px; padding: 10px 10px 0; }
-  .tabs button { border: none; background: none; color: var(--muted); padding: 6px 10px; }
+  .tabs button { border: none; background: none; color: var(--muted); padding: 6px 8px; white-space: nowrap; font-size: 13px; }
   .tabs button.on { background: var(--bg); color: var(--ink); border-radius: 8px; }
   .list { overflow-y: auto; padding: 8px 10px 12px; }
   .item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
@@ -174,7 +174,7 @@ PAGE = r"""<!doctype html>
       <div class="lane shorts" id="lane-shorts"></div>
       <div class="playhead" id="playhead"></div>
     </div>
-    <div class="legend">
+    <div class="legend" id="legend">
       <span><i style="background:var(--keep)"></i>kept</span>
       <span><i style="background:var(--cut)"></i>silence cut</span>
       <span><i style="background:var(--retake)"></i>retake cut</span>
@@ -331,16 +331,23 @@ function seg(lane, s, e, cls, text, style) {
 function drawCuts() {
   $("lane-base").innerHTML = "";
   if (FOLDER) {
-    // one block per chapter, a thin gap between selects, dropped selects dimmed
-    let acc = 0, chapterIndex = -1;
+    // one block per chapter with its name, a thin line where each select starts,
+    // dropped selects greyed out on top
+    let acc = 0, start = 0, title = null, n = 0;
+    const blocks = [], lines = [], gone = [];
     D.program.forEach(([s, e, id], i) => {
-      if (D.chapters[i] !== undefined) chapterIndex += 1;
-      const shade = chapterIndex % 2 ? "var(--keep2)" : "var(--keep)";
-      const first = i === 0 || D.program[i - 1][2] !== id;
-      seg("lane-base", acc, acc + (e - s), `program${first ? " select-start" : ""}`, D.chapters[i] || "",
-          { background: dropped.has(id) ? "var(--cut)" : shade });
+      if (D.chapters[i] !== undefined) {
+        if (title !== null || i > 0) blocks.push([start, acc, title ?? ""]);
+        start = acc; title = D.chapters[i];
+      }
+      if (i > 0 && D.program[i - 1][2] !== id) lines.push(acc);
+      if (dropped.has(id)) gone.push([acc, acc + (e - s)]);
       acc += e - s;
     });
+    blocks.push([start, acc, title ?? ""]);
+    blocks.forEach(([a, b, t]) => seg("lane-base", a, b, "program", t, { background: n++ % 2 ? "var(--keep2)" : "var(--keep)" }));
+    gone.forEach(([a, b]) => seg("lane-base", a, b, "cut"));
+    lines.forEach((x) => seg("lane-base", x, x, "select-line"));
     return;
   }
   D.finalCuts.forEach(([s, e]) => seg("lane-base", s, e, "cut"));
@@ -460,7 +467,7 @@ function transcriptView() {
 }
 const TABS = FOLDER
   ? { vlog: ["Vlog", vlogView, () => D.selects.length], shorts: ["Shorts", shortsView, () => D.shorts.length],
-      decisions: ["Cuts to check", decisionsView, () => D.decisions.length], transcript: ["Transcript", transcriptView, () => D.sentences.length] }
+      decisions: ["Cuts", decisionsView, () => D.decisions.length], transcript: ["Transcript", transcriptView, () => D.sentences.length] }
   : { shorts: ["Shorts", shortsView, () => D.shorts.length], decisions: ["Cuts to check", decisionsView, () => D.decisions.length],
       transcript: ["Transcript", transcriptView, () => D.sentences.length] };
 $("tabs").innerHTML = Object.keys(TABS).map((k) => `<button data-tab="${k}"></button>`).join("");
@@ -490,6 +497,12 @@ $("list").onclick = (ev) => {
   if (ds.seek) { setMode("original"); seek(parseFloat(ds.seek), true); }
 };
 
+if (FOLDER) {
+  $("legend").innerHTML = `<span><i style="background:var(--keep)"></i><i style="background:var(--keep2)"></i>chapters</span>
+    <span><i style="background:var(--retake)"></i>retake cut</span><span><i style="background:var(--manual)"></i>manual cut</span>
+    <span><i style="outline:1.5px dashed var(--rejected)"></i>rejected</span><span><i style="background:var(--cut)"></i>dropped select</span>
+    <span><i style="background:var(--short)"></i>short candidate</span>`;
+}
 $("title").textContent = D.title;
 const judged = D.decisions.filter((d) => d.status === "cut").length;
 $("stats").textContent = FOLDER

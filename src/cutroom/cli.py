@@ -189,9 +189,11 @@ def make_plan(path: Path, args) -> Job:
                 job.chapters[len(job.program)] = item["chapter"]
                 last = item["chapter"]
             job.program += [(a, b, item["id"]) for a, b in parts]
-        within = [(s, e) for s, e, _ in job.program]
+        # judgment calls worth checking are the ones inside a select (a removed
+        # retake is never inside the kept pieces, so test against the selects)
+        spans = [(item["startMs"], item["endMs"]) for item in selected]
         plan.decisions = [d for d in plan.decisions
-                          if any(e > d["startMs"] and s < d["endMs"] for s, e in within)]
+                          if any(e > d["startMs"] and s < d["endMs"] for s, e in spans)]
     else:
         job.program = [(s, e, None) for s, e in plan.keeps]
     if getattr(args, "report", None):

@@ -1,6 +1,7 @@
 # ffmpeg/ffprobe helpers shared by every adapter: silence detection, probing,
 # rendering kept segments, and never-overwrite output naming.
 
+import functools
 import json
 import os
 import re
@@ -19,6 +20,21 @@ def require_ffmpeg() -> None:
     if missing:
         sys.exit(f"{' and '.join(missing)} not found on PATH - install ffmpeg: "
                  "https://ffmpeg.org/download.html")
+
+
+@functools.cache
+def ffmpeg_major() -> int:
+    # major version of the ffmpeg on PATH; development builds ("N-12345-g...")
+    # and unreadable strings count as new
+    out = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True).stdout
+    found = re.match(r"ffmpeg version n?(\d+)\.", out)
+    return int(found.group(1)) if found else 99
+
+
+def filter_script(path: Path) -> list[str]:
+    # read a filter graph from a file: ffmpeg 7 added "-/filter_complex <file>",
+    # and newer builds dropped the old -filter_complex_script
+    return ["-/filter_complex" if ffmpeg_major() >= 7 else "-filter_complex_script", str(path)]
 
 
 def detect_silences(audio: Path, noise_db: float, min_silence_s: float,
@@ -101,7 +117,7 @@ def _render_pass(video: Path, keeps: list[Range], dst: Path, codec_args: list[st
         seek = ["-ss", f"{seek_ms / 1000:.3f}"] if seek_ms else []
         subprocess.run(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", *extra, *seek,
-             "-i", str(video), "-filter_complex_script", str(script_path),
+             "-i", str(video), *filter_script(script_path),
              "-map", "[v]", "-map", "[a]", *codec_args, str(dst)],
             check=True,
         )

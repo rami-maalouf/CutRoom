@@ -47,6 +47,7 @@ cutroom project ~/Movies/demo.screenstudio --yes             # writes demo-clean
 cutroom export talk.mp4 S3 S5                                # short candidates -> talk-S3.fcpxml, talk-S5.fcpxml
 cutroom import talk.mp4 edited-in-fcp.fcpxml                 # make a Final Cut timeline the edit
 cutroom transcribe talk.mp4                                  # only writes talk.transcript.json
+cutroom digest ~/Movies/weekend                              # a folder of clips: see below
 ```
 
 Every command reads the project file `<name>.cutroom.json` next to the source, so decisions persist between runs (see below). Outputs never overwrite anything (`-clean`, `-clean-v2`, `-S3`, ...).
@@ -104,6 +105,18 @@ Reviewing should cost no rendering and no new media. The loop:
 If you then edit by hand in Final Cut Pro and want the agent to continue from your edit: File > Export XML, then `cutroom import <video> <exported.fcpxml>`. The Final Cut timeline becomes the edit in the project file (plain clips in source order; compound, multicam and retimed clips are refused).
 
 Why not iterate inside Final Cut Pro: an FCPXML import always creates a new project, and Final Cut can copy the media into the library on import. One measured library held 43.9 GB of copied source files. Iterating in the project file and the review page avoids both.
+
+## A vlog from a folder of clips
+
+A folder of clips (a shoot, an event weekend) is one source. Clips sit on one timeline in capture order (iPhone creation date, then the file's `creation_time`, then its modified time), and everything CutRoom keeps lives in a visible `<folder>/cutroom/` subfolder: the project file, one transcript per clip, the digest, contact sheets, the review page and exports.
+
+```bash
+cutroom digest ~/Movies/weekend --shards 5 --sheets   # transcribe every clip once, write agent digest shards
+cutroom review ~/Movies/weekend --open                # the vlog, by chapter, played from the original files
+cutroom export ~/Movies/weekend vlog S2               # cutroom/exports/weekend-vlog.fcpxml and -S2.fcpxml
+```
+
+The vlog is `selects` in the project file: an ordered list of moments `{"id": "V1", "clip": "cam/DJI_0051.MP4", "start": 12.3, "end": 40.1, "chapter": "Friday"}`. Choosing them is the agent's job (see the skill): parallel sub-agents read one digest shard each and propose scored candidates, and a lead edit orders the best into selects. CutRoom snaps every select to whole words, removes silences and retakes inside it, and exports the program as one FCPXML across all clips, with chapter markers. Times are anchored to clips, so adding a file to the folder never moves a decision. Without selects, the program is the whole clean footage.
 
 ## Agent skill
 

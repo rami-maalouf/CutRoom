@@ -38,6 +38,22 @@ Without a terminal, cutroom approves every proposed cut, so planning and review 
 7. **Edits made in Final Cut.** If the user changed the cut by hand and wants you to continue: they export it (File > Export XML), you run `cutroom import <video> <file.fcpxml>`. That timeline becomes the edit in the project file.
 8. **Report** the before and after duration and every decision, including the ones you added.
 
+## A vlog from a folder of clips
+
+A folder (a shoot, an event weekend) is one source: `cutroom review <folder>`, `cutroom export <folder> vlog`. Clips sit on one timeline in capture order. Everything cutroom keeps lives in `<folder>/cutroom/`, and the project file is `<folder>/cutroom/cutroom.json`. Every range names its clip: `{"clip": "pocket4/DJI_..._0051_D.MP4", "start": 12.3, "end": 40.1}`, in seconds inside that clip.
+
+1. **Brief.** Write `<folder>/cutroom/brief.md` from the conversation: who is filming, the angle, the audience, the target length (default 5-15 min), what must be in it, and what must not. Every agent below reads it.
+2. **Digest.** `cutroom digest <folder> --shards 5 --sheets` transcribes each clip once (cached per clip) and writes `cutroom/digest/all.md` plus `shard-1.md ... shard-5.md`: one block per clip, one line per sentence, `[start-end] text`, in capture order. Clips without speech are listed with a contact sheet (`cutroom/sheets/*.jpg`); look at those that sound like b-roll.
+3. **Parallel selection.** Start one sub-agent per shard (a fast model is enough). Give each one the brief and its shard path, and ask it to write `cutroom/candidates/shard-N.json`:
+   ```json
+   [{"clip": "...", "start": 0.0, "end": 0.0, "score": 1, "chapter": "Friday night", "title": "...", "why": "..."}]
+   ```
+   Score 1-10 for how much the moment serves the brief. A candidate is a complete thought: start at the start of a sentence, end at the end of one, and include the setup a viewer needs. Prefer moments with energy, a payoff, or something that only happened here; skip logistics and repeats.
+4. **Lead edit.** Read all candidates. Keep the best for pace and the target length, avoid saying the same thing twice, and order them as a story (capture order unless the brief says otherwise). Write them to `selects` as `V1, V2, ...` with a `chapter` on each (a new chapter value starts a chapter marker). Run `cutroom review <folder>`: it prints the program length. Adjust until the length fits.
+5. **Shorts.** From the selects, choose short candidates with the standalone gate (step 3 of the main workflow). In a folder a short is `{"id": "S1", "title", "why", "segments": [{"clip", "start", "end"}, ...]}`; segments may come from several clips.
+6. **Review page.** `cutroom review <folder> --open` writes `cutroom/review.html`: the vlog plays from the original files without rendering, by chapter, with Drop on every select, the retakes inside the selects, and the shorts. Feedback comes back as "Remove V7 ...", "Reject R2 ..." (a keep entry with its clip) and "Export S3 ...". Apply it to the project file and review again.
+7. **Export once.** `cutroom export <folder> vlog S3 S5` writes `cutroom/exports/<folder>-vlog.fcpxml` (all clips, chapter markers) and one FCPXML per short. Import into Final Cut Pro once.
+
 ## Choices
 
 - `--pacing balanced` is the default. Use `tight` for punchy social cuts and `relaxed` for calm tutorials. Pass the same pacing to `review`, `video`, `project` and `export`.

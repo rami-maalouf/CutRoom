@@ -22,9 +22,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import __version__, folder, project
-from .core import Range, clean_segments, invert_cuts, merge_ranges, resolve_pacing, snap_range
+from .core import Range, clean_segments, drop_hallucinated_words, invert_cuts, merge_ranges, resolve_pacing, snap_range
 from .fcpxml import read_keeps, write_fcpxml, write_timeline
-from .media import probe_video, render, require_ffmpeg, versioned_output
+from .media import collect_silences, probe_video, render, require_ffmpeg, versioned_output
 from .pipeline import Plan, plan_cuts, write_report
 from .review import write_review
 from .screenstudio import action_times, check_package, edited_ranges, mic_sessions, write_cut_package
@@ -266,19 +266,24 @@ def run_digest(args) -> None:
     if not sessions:
         sys.exit(f"no video files in {src}")
     print(f"folder: {len(sessions)} clips, {sum(s['durationMs'] for s in sessions) / 3600000:.2f} h")
-    words = transcribe_sessions(sessions, None, args.backend)
+    with ThreadPoolExecutor(2) as pool:
+        silences_job = pool.submit(collect_silences, sessions, -35.0, 0.6)
+        words = transcribe_sessions(sessions, None, args.backend)
+        words, dropped = drop_hallucinated_words(words, silences_job.result())
+    if dropped:
+        print(f"dropped {len(dropped)} hallucinated words (inside silence)")
     sheets = {}
     if args.sheets:
         offsets = folder.offsets(sessions)
-        speechless = [s for s in sessions
-                      if not any(offsets[s["rel"]] <= w["startMs"] < offsets[s["rel"]] + s["durationMs"]
-                                 for w in words)]
+        speechless = [s for s in sessions if folder.mostly_visual(
+            sum(offsets[s["rel"]] <= w["startMs"] < offsets[s["rel"]] + s["durationMs"] for w in words),
+            s["durationMs"])]
         out = folder.workdir(src) / "sheets"
         with ThreadPoolExecutor(4) as pool:
             done = pool.map(lambda s: folder.contact_sheet(
                 s["path"], out / (s["rel"].replace("/", "__") + ".jpg")), speechless)
             sheets = {s["rel"]: p.relative_to(folder.workdir(src)).as_posix() for s, p in zip(speechless, done)}
-        print(f"contact sheets: {len(sheets)} clips without speech")
+        print(f"contact sheets: {len(sheets)} mostly visual clips")
     shards = folder.write_digest(sessions, words, folder.workdir(src) / "digest", args.shards, sheets)
     print(f"digest: {folder.workdir(src) / 'digest' / 'all.md'} and {len(shards)} shards")
     for path in shards:
@@ -398,7 +403,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("digest", help="folder: transcribe every clip and write agent-readable digest shards")
     p.add_argument("folder", type=Path)
     p.add_argument("--shards", type=int, default=5, help="split the digest for this many parallel agents")
-    p.add_argument("--sheets", action="store_true", help="contact sheets for clips without speech")
+    p.add_argument("--sheets", action="store_true", help="contact sheets for mostly visual clips")
     p.add_argument("--backend", choices=["mlx", "faster-whisper"], default=None)
     p.set_defaults(run=run_digest)
 

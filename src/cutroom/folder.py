@@ -143,9 +143,11 @@ def write_digest(sess: list[dict], words: list[dict], dst: Path, shards: int,
                 f"  ·  {len(clip_words)} words")
         lines = [f"[{x['startMs'] / 1000:.2f}-{x['endMs'] / 1000:.2f}] {x['text']}"
                  for x in words_to_sentences(clip_words)]
+        sheet = sheets.get(s["rel"]) if sheets else None
         if not lines:
-            sheet = sheets.get(s["rel"]) if sheets else None
             lines = ["(no speech)" + (f" contact sheet: {sheet}" if sheet else "")]
+        elif sheet:
+            lines.insert(0, f"(mostly visual) contact sheet: {sheet}")
         blocks.append(head + "\n" + "\n".join(lines))
         weights.append(max(1, len(clip_words)))
         offset = end
@@ -156,13 +158,15 @@ def write_digest(sess: list[dict], words: list[dict], dst: Path, shards: int,
     header = ("# transcript digest\n\ntimes are seconds inside each clip. a select is "
               '{"clip": "<path after ##>", "start": s, "end": s}.\n\n')
     (dst / "all.md").write_text(header + "\n\n".join(blocks) + "\n", encoding="utf-8")
-    paths, target = [], sum(weights) / max(1, shards)
-    current, load = [], 0
+    # each shard's target is what is left divided by the shards left, so one
+    # very long clip does not leave the last shard empty
+    paths, current, load, left = [], [], 0, sum(weights)
     for block, weight in zip(blocks, weights):
         current.append(block)
         load += weight
-        if load >= target and len(paths) < shards - 1:
+        if len(paths) < shards - 1 and load >= left / (shards - len(paths)):
             paths.append(current)
+            left -= load
             current, load = [], 0
     if current:
         paths.append(current)
@@ -173,6 +177,12 @@ def write_digest(sess: list[dict], words: list[dict], dst: Path, shards: int,
                         encoding="utf-8")
         written.append(path)
     return written
+
+
+def mostly_visual(words: int, duration_ms: float) -> bool:
+    # a clip whose value is probably its picture: at an event every clip has some
+    # talking in it, so "no speech" is too strict; few words per minute is the sign
+    return words < 8 or words / max(duration_ms / 60000, 1 / 60) < 20
 
 
 def contact_sheet(clip: Path, dst: Path, frames: int = 12) -> Path:

@@ -71,7 +71,8 @@ def markdown(text: str) -> str:
             out.append(f"<h{len(heading.group(1)) + 2}>{_inline(heading.group(2))}</h{len(heading.group(1)) + 2}>")
         elif bullet:
             flush()
-            out.append(f"<li>{_inline(bullet.group(1))}</li>")
+            nested = ' class="nested"' if len(line) - len(line.lstrip()) >= 2 else ""
+            out.append(f"<li{nested}>{_inline(bullet.group(1))}</li>")
         elif not line.strip():
             flush()
         else:
@@ -187,6 +188,7 @@ PAGE = r"""<!doctype html>
   .story h3 { font-size: 16px; }
   .story p { margin: 6px 0; }
   .story li { margin: 3px 0 3px 18px; }
+  .story li.nested { margin-left: 36px; list-style: circle; }
   .story table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 8px 0; }
   .story th, .story td { border: 1px solid var(--line); padding: 4px 6px; vertical-align: top; text-align: left; }
   .story code { font-size: 12px; background: var(--bg); padding: 0 4px; border-radius: 4px; }
@@ -577,7 +579,10 @@ if (FOLDER) {
 }
 $("title").textContent = D.title;
 const judged = D.decisions.filter((d) => d.status === "cut").length;
-$("stats").textContent = FOLDER
+$("stats").textContent = FOLDER && !D.selects.length
+  ? `${D.media.length} clips, ${hours(D.durationSeconds)} of footage  ·  `
+    + (D.story ? "story outline ready for review, no selects yet" : "no story or selects yet")
+  : FOLDER
   ? `${D.media.length} clips, ${hours(D.durationSeconds)} of footage → ${fmt(D.keptSeconds)} vlog  ·  `
     + `${D.selects.length} selects  ·  ${Object.keys(D.chapters).length} chapters  ·  ${judged} judgment cuts  ·  ${D.shorts.length} short candidates`
   : `${fmt(D.durationSeconds)} → ${fmt(D.keptSeconds)} clean  ·  ${judged} judgment cuts  ·  ${D.shorts.length} short candidates`;

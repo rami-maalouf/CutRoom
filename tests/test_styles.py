@@ -55,7 +55,7 @@ def test_read_through_shows_chapters_tags_and_cuts_inside(shoot):
         {"id": "V2", "clip": "cam/broll.mp4", "start": 0.0, "end": 3.0, "chapter": "Evening", "raw": True},
     ])
     main(["script", str(shoot), "--pacing", "tight"])
-    text = (shoot / "cutroom" / "script.md").read_text()
+    text = (shoot / "cutroom" / "script.md").read_text(encoding="utf-8")
     assert "## Morning" in text and "## Evening" in text
     assert "### V1" in text and "arrival · setup" in text and "intent: open on the premise" in text
     assert "> Hello everyone. / Welcome back." in text   # the pause between them was cut
@@ -84,7 +84,7 @@ def test_story_order_keeps_beats_and_their_fields(shoot):
          "intent": "open the day"},
     ]))
     main(["candidates", str(shoot), "--write-selects", "--story-order"])
-    selects = json.loads(project.project_path(shoot).read_text())["selects"]
+    selects = json.loads(project.project_path(shoot).read_text(encoding="utf-8"))["selects"]
     assert [s["clip"] for s in selects] == ["cam/a.mp4", "phone/c.mov"]  # not capture order
     assert selects[0]["raw"] is True and selects[1]["intent"] == "open the day"
 

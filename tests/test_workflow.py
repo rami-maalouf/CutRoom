@@ -37,7 +37,7 @@ def write_project(src, **data):
 def report(tmp_path, src, *extra):
     out = tmp_path / "r.json"
     main(["video", str(src), "--yes", "--dry-run", "--report", str(out), *extra])
-    return json.loads(out.read_text())
+    return json.loads(out.read_text(encoding="utf-8"))
 
 
 def clips(fcpxml):
@@ -82,7 +82,7 @@ def test_cli_cut_and_keep_apply_for_one_run(tmp_path, talk):
 def test_review_page_embeds_the_plan_and_short_segments(tmp_path, talk):
     write_project(talk, shorts=[{"id": "S1", "start": 3.5, "end": 11.5, "title": "the point", "why": "standalone"}])
     main(["review", str(talk)])
-    page = (tmp_path / "talk.review.html").read_text()
+    page = (tmp_path / "talk.review.html").read_text(encoding="utf-8")
     data = json.loads(re.search(r'<script type="application/json" id="data">(.*?)</script>', page, re.S).group(1))
     assert data["kind"] == "video" and data["media"][0]["uri"].startswith("file://")
     assert [d["id"] for d in data["decisions"]] == ["R1"]
@@ -126,7 +126,7 @@ def test_final_cut_timeline_comes_back_as_the_edit(tmp_path, talk):
     root.write(timeline)
 
     main(["import", str(talk), str(timeline)])
-    edits = json.loads(project.project_path(talk).read_text())["edits"]
+    edits = json.loads(project.project_path(talk).read_text(encoding="utf-8"))["edits"]
     assert len(edits["keeps"]) == len(before["keeps"]) - 1
     after = report(tmp_path, talk)
     assert len(after["keeps"]) == len(before["keeps"]) - 1
@@ -158,11 +158,11 @@ def test_screen_studio_edit_made_before_cutroom_counts_as_cut(tmp_path):
     write_transcript(pkg.with_suffix(".transcript.json"), WORDS)
     # the user had already trimmed the project to 8-16 s in screen studio
     path = pkg / "project.json"
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     data["json"]["scenes"][0]["slices"] = [{"id": "a", "sourceStartMs": 8000, "sourceEndMs": 16000}]
     path.write_text(json.dumps(data))
     out = tmp_path / "r.json"
     main(["project", str(pkg), "--yes", "--dry-run", "--report", str(out)])
-    r = json.loads(out.read_text())
+    r = json.loads(out.read_text(encoding="utf-8"))
     assert all(s >= 8.0 and e <= 16.0 for s, e in r["keeps"])
     assert r["decisions"] == []  # the retake at 0-4 s is outside the edit

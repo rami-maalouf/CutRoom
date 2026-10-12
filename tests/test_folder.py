@@ -43,13 +43,13 @@ def save(root, **data):
 
 
 def page_data(root):
-    page = (root / "cutroom" / "review.html").read_text()
+    page = (root / "cutroom" / "review.html").read_text(encoding="utf-8")
     return json.loads(re.search(r'<script type="application/json" id="data">(.*?)</script>', page, re.S).group(1))
 
 
 def test_clips_are_ordered_by_capture_time_and_digested(shoot):
     main(["digest", str(shoot), "--shards", "2"])
-    digest = (shoot / "cutroom" / "digest" / "all.md").read_text()
+    digest = (shoot / "cutroom" / "digest" / "all.md").read_text(encoding="utf-8")
     assert digest.index("## phone/c.mov") < digest.index("## cam/a.mp4") < digest.index("## cam/broll.mp4")
     assert "[0.10-1.90] Hello everyone." in digest
     assert "(no speech  ·  contact sheet: sheets/cam__broll.mp4.jpg)" in digest
@@ -149,7 +149,7 @@ def test_candidates_are_checked_merged_and_written_as_selects(shoot, capsys):
     out = capsys.readouterr().out
     assert "unknown clip 'cam/nope.mp4'" in out and "outside cam/a.mp4" in out
     main(["candidates", str(shoot), "--write-selects", "--min-score", "7"])
-    selects = json.loads(project.project_path(shoot).read_text())["selects"]
+    selects = json.loads(project.project_path(shoot).read_text(encoding="utf-8"))["selects"]
     # capture order (c before a), the two overlapping noon moments merged, the weak one dropped
     assert [(s["id"], s["clip"], s["start"], s["end"]) for s in selects] == [
         ("V1", "phone/c.mov", 0.0, 1.9), ("V2", "cam/a.mp4", 0.0, 5.9)]

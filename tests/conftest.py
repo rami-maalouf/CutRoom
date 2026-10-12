@@ -99,7 +99,7 @@ def make_screenstudio(root: Path, sessions: list[list[tuple[str, float]]],
 
 
 def slices(pkg: Path) -> list[tuple[float, float]]:
-    project = json.loads((pkg / "project.json").read_text())["json"]
+    project = json.loads((pkg / "project.json").read_text(encoding="utf-8"))["json"]
     return [(s["sourceStartMs"], s["sourceEndMs"])
             for scene in project["scenes"] for s in scene["slices"]]
 

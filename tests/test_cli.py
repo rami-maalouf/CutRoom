@@ -48,7 +48,7 @@ def test_dry_run_writes_nothing_but_the_report(tmp_path):
     report = tmp_path / "report.json"
     main(["project", str(pkg), "--yes", "--dry-run", "--report", str(report)])
     assert not (tmp_path / "demo-clean.screenstudio").exists()
-    data = json.loads(report.read_text())
+    data = json.loads(report.read_text(encoding="utf-8"))
     assert [s["text"] for s in data["sentences"]] == ["first.", "second.", "third."]
     assert len(data["finalCuts"]) == 2 and len(data["keeps"]) == 3
 
@@ -78,7 +78,7 @@ def test_video_render_matches_the_plan(tmp_path):
     write_transcript(video.with_suffix(".transcript.json"), WORDS)
     report = tmp_path / "r.json"
     main(["video", str(video), "--yes", "--report", str(report)])
-    kept = json.loads(report.read_text())["keptSeconds"]
+    kept = json.loads(report.read_text(encoding="utf-8"))["keptSeconds"]
     assert abs(probe_duration(tmp_path / "talk-clean.mp4") - kept) < 0.15
 
 

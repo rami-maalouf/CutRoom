@@ -26,7 +26,7 @@ def test_events_outside_every_session_are_ignored(tmp_path):
 def test_recordings_without_clock_metadata_have_no_actions(tmp_path):
     pkg = make_screenstudio(tmp_path, [[("tone", 2)]], clicks=[1.0])
     meta_path = pkg / "recording" / "metadata.json"
-    meta = json.loads(meta_path.read_text())
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
     for s in meta["recorders"][1]["sessions"]:
         del s["processTimeStartMs"], s["processTimeEndMs"]
     meta_path.write_text(json.dumps(meta))
@@ -35,10 +35,10 @@ def test_recordings_without_clock_metadata_have_no_actions(tmp_path):
 
 def test_write_cut_package_clones_and_never_touches_the_source(tmp_path):
     pkg = make_screenstudio(tmp_path, [[("tone", 2), ("silence", 2), ("tone", 2)]])
-    before = (pkg / "project.json").read_text()
+    before = (pkg / "project.json").read_text(encoding="utf-8")
     out = write_cut_package(pkg, [(2000, 4000)], None)
     assert out.name == "demo-clean.screenstudio"
-    assert (pkg / "project.json").read_text() == before
+    assert (pkg / "project.json").read_text(encoding="utf-8") == before
     assert slices(out) == [(0, 2000), (4000, 6000)]
     assert (out / "recording" / "channel-2-microphone-0.m4a").exists()
     assert write_cut_package(pkg, [(2000, 4000)], None).name == "demo-clean-v2.screenstudio"

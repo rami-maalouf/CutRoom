@@ -199,7 +199,8 @@ PAGE = r"""<!doctype html>
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   aside { display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 150px); }
   .tabs { display: flex; gap: 4px; padding: 10px 10px 0; }
-  .tabs button { border: none; background: none; color: var(--muted); padding: 6px 8px; white-space: nowrap; font-size: 13px; }
+  .tabs { flex: none; flex-wrap: nowrap; overflow-x: auto; }
+  .tabs button { border: none; background: none; color: var(--muted); padding: 6px 7px; white-space: nowrap; font-size: 12.5px; }
   .tabs button.on { background: var(--bg); color: var(--ink); border-radius: 8px; }
   .list { overflow-y: auto; padding: 8px 10px 12px; }
   .item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
@@ -441,8 +442,14 @@ function drawShorts() {
   $("lane-shorts").innerHTML = "";
   D.shorts.forEach((s) => {
     if (!FOLDER) return seg("lane-shorts", s.keeps.length ? s.keeps[0][0] : 0, s.keeps.length ? s.keeps.at(-1)[1] : 0, "short", s.id);
-    const xs = s.keeps.flatMap(([a, b]) => [axisOf(a), axisOf(b)]);
-    if (xs.length && xs.every((x) => x !== null)) seg("lane-shorts", Math.min(...xs), Math.max(...xs), "short", s.id);
+    // one mark per piece, so a short made of distant moments does not look like one long stretch
+    let labelled = false;
+    s.keeps.forEach(([a, b]) => {
+      const xa = axisOf(a), xb = axisOf(b);
+      if (xa === null || xb === null) return;
+      seg("lane-shorts", xa, Math.max(xb, xa + AX / 300), "short", labelled ? "" : s.id);
+      labelled = true;
+    });
   });
 }
 drawCuts(); drawMarks(); drawShorts();
@@ -487,7 +494,7 @@ function vlogView() {
     <div class="item ${off ? "dropped" : ""}">
       <div class="top"><span class="id">${s.id}</span>${s.title ? `<strong>${esc(s.title)}</strong>` : ""}</div>
       <div class="tag">${esc(s.where)}  ·  ${fmt(spans(s.keeps))} in the vlog</div>
-      ${s.beat || s.role || s.raw ? `<div class="chips">${[s.beat, s.role].filter(Boolean).map((t) => `<span class="chip">${esc(t)}</span>`).join("")}${s.raw ? `<span class="chip raw" title="plays as it happened: no silence or retake cuts inside">raw</span>` : ""}</div>` : ""}
+      ${s.beat || s.role || s.raw ? `<div class="chips">${[s.beat, s.role !== s.beat ? s.role : ""].filter(Boolean).map((t) => `<span class="chip">${esc(t)}</span>`).join("")}${s.raw ? `<span class="chip raw" title="plays as it happened: no silence or retake cuts inside">raw</span>` : ""}</div>` : ""}
       ${s.intent ? `<p class="intent">${esc(s.intent)}</p>` : ""}
       ${s.text ? `<p>${esc(s.text)}</p>` : ""}
       ${s.why ? `<p class="tag">${esc(s.why)}</p>` : ""}

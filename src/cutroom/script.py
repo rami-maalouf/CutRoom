@@ -5,6 +5,8 @@
 
 from pathlib import Path
 
+from .core import words_to_sentences
+
 
 def _clock(seconds: float) -> str:
     m, s = divmod(max(0.0, seconds), 60)
@@ -27,12 +29,13 @@ def build_script(job) -> str:
            f"{job.data['style']}  ·  {_clock(total)} long  ·  {len(job.data['selects'])} selects  ·  "
            f"{len(job.chapters)} chapters", ""]
     if not job.data["selects"]:
-        # a talking head (or a folder without selects): the clean cut, one line per kept piece
+        # a talking head (or a folder without selects): the clean cut, one line per
+        # sentence at its time in the cut; " / " marks a cut inside a sentence
         at = 0.0
         for s, e, *_ in job.program:
-            text = " ".join(w["word"] for w in words if s <= w["startMs"] < e)
-            if text:
-                out.append(f"[{_clock(at)}] {text}")
+            piece = [w for w in words if s <= w["startMs"] < e]
+            for sent in words_to_sentences(piece):
+                out.append(f"[{_clock(at + (sent['startMs'] - s) / 1000)}] {sent['text']}")
             at += (e - s) / 1000
         return "\n".join(out) + "\n"
 

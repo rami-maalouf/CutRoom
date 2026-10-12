@@ -126,7 +126,9 @@ def _render_pass(video: Path, keeps: list[Range], dst: Path, codec_args: list[st
 def render(video: Path, keeps: list[Range], dst: Path,
            chunk_segments: int = CHUNK_SEGMENTS) -> None:
     # frame-accurate assembly of kept ranges, re-encoded
-    if len(keeps) <= chunk_segments:
+    in_order = all(b[0] >= a[1] - 1 for a, b in zip(keeps, keeps[1:]))
+    if len(keeps) <= chunk_segments or not in_order:
+        # chunks seek forward through the source, so a reordered program renders in one pass
         print(f"rendering {len(keeps)} segments -> {dst.name} ...")
         _render_pass(video, keeps, dst, VIDEO_CODEC + AUDIO_CODEC, extra=["-stats"])
         return

@@ -256,7 +256,13 @@ def run_project(args) -> None:
     if args.dry_run:
         print("dry run - nothing written")
         return
-    write_cut_package(job.src, job.plan.final_cuts, args.output)
+    cuts = job.plan.final_cuts
+    if job.data["selects"]:
+        # a screen studio project keeps recorded order: the selects decide what
+        # stays, not the order (for a reordered cut, export fcpxml from the export)
+        print("selects: keeping their content in recorded order (screen studio projects are not reordered)")
+        cuts = invert_cuts(merge_ranges([(s, e) for s, e, _ in job.program]), job.plan.total_ms)
+    write_cut_package(job.src, cuts, args.output)
 
 
 def run_video(args) -> None:
@@ -271,14 +277,19 @@ def run_video(args) -> None:
     if args.dry_run:
         print("dry run - nothing written")
         return
+    # with selects (a reordered talking head) the program is the selects in their
+    # order; without, it is the clean cut in recorded order
+    ranges = [(s, e) for s, e, _ in job.program]
     if args.export == "fcpxml":
         dst = versioned_output(args.output or src.with_name(f"{src.stem}-clean.fcpxml"), src)
-        markers = [(d["endMs"], f"{d['id']} {d['reason']} cut, kept: {(d.get('kept') or '')[:80]}")
-                   for d in plan.cut_decisions]
-        write_fcpxml(src, plan.keeps, dst, plan.total_ms, markers)
+        # retake markers follow source order, so they only make sense without reordering
+        markers = [] if job.data["selects"] else [
+            (d["endMs"], f"{d['id']} {d['reason']} cut, kept: {(d.get('kept') or '')[:80]}")
+            for d in plan.cut_decisions]
+        write_fcpxml(src, ranges, dst, plan.total_ms, markers)
         return
     dst = versioned_output(args.output or src.with_name(f"{src.stem}-clean{src.suffix}"), src)
-    render(src, plan.keeps, dst)
+    render(src, ranges, dst)
     print(f"wrote: {dst}")
 
 

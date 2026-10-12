@@ -87,3 +87,20 @@ def test_story_order_keeps_beats_and_their_fields(shoot):
     selects = json.loads(project.project_path(shoot).read_text())["selects"]
     assert [s["clip"] for s in selects] == ["cam/a.mp4", "phone/c.mov"]  # not capture order
     assert selects[0]["raw"] is True and selects[1]["intent"] == "open the day"
+
+
+def test_a_reordered_talking_head_exports_and_renders_in_select_order(tmp_path):
+    from conftest import probe_duration
+    video = make_video(tmp_path / "talk.mp4", SPEECH)
+    write_transcript(video.with_suffix(".transcript.json"), WORDS)
+    # the closing line moved to the front as a hook, then the opening
+    project.save(video, {"v": 2, "edits": {"cuts": [], "keeps": []}, "shorts": [], "selects": [
+        {"id": "V1", "start": 4.0, "end": 6.0}, {"id": "V2", "start": 0.0, "end": 2.0}]})
+    main(["video", str(video), "--yes", "--export", "fcpxml"])
+    import xml.etree.ElementTree as ET
+    from fractions import Fraction
+    starts = [Fraction(c.get("start").rstrip("s")) for c in
+              ET.parse(tmp_path / "talk-clean.fcpxml").getroot().findall(".//spine/asset-clip")]
+    assert starts[0] > starts[1]  # V1 (later in the source) plays first
+    main(["video", str(video), "--yes"])
+    assert 3.4 < probe_duration(tmp_path / "talk-clean.mp4") < 4.6

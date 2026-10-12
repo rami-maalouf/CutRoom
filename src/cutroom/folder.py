@@ -127,6 +127,28 @@ def _fmt(seconds: float) -> str:
     return f"{int(m)}:{s:04.1f}"
 
 
+def _digest_lines(words: list[dict], longest_ms: float = 12000, piece_ms: float = 8000) -> list[dict]:
+    # sentences, but a run-on without punctuation (whisper writes some passages
+    # as one 60 s "sentence") is split into ~8 s pieces at word boundaries, so
+    # an agent can still place a cut precisely
+    out = []
+    for sent in words_to_sentences(words):
+        if sent["endMs"] - sent["startMs"] <= longest_ms:
+            out.append(sent)
+            continue
+        piece: list[dict] = []
+        for w in (w for w in words if sent["startMs"] <= w["startMs"] <= sent["endMs"]):
+            piece.append(w)
+            if piece[-1]["endMs"] - piece[0]["startMs"] >= piece_ms:
+                out.append({"startMs": piece[0]["startMs"], "endMs": piece[-1]["endMs"],
+                            "text": " ".join(x["word"] for x in piece)})
+                piece = []
+        if piece:
+            out.append({"startMs": piece[0]["startMs"], "endMs": piece[-1]["endMs"],
+                        "text": " ".join(x["word"] for x in piece)})
+    return out
+
+
 def write_digest(sess: list[dict], words: list[dict], dst: Path, shards: int,
                  sheets: dict[str, Path] | None = None) -> list[Path]:
     # compact, agent-readable transcript: one block per clip, one line per
@@ -142,7 +164,7 @@ def write_digest(sess: list[dict], words: list[dict], dst: Path, shards: int,
         head = (f"## {s['rel']}\ncaptured {local:%a %Y-%m-%d %H:%M}  ·  {_fmt(s['durationMs'] / 1000)}"
                 f"  ·  {len(clip_words)} words")
         lines = [f"[{x['startMs'] / 1000:.2f}-{x['endMs'] / 1000:.2f}] {x['text']}"
-                 for x in words_to_sentences(clip_words)]
+                 for x in _digest_lines(clip_words)]
         sheet = sheets.get(s["rel"]) if sheets else None
         if not lines:
             lines = ["(no speech)" + (f" contact sheet: {sheet}" if sheet else "")]

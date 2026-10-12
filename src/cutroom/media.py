@@ -134,7 +134,8 @@ def render(video: Path, keeps: list[Range], dst: Path,
         with ThreadPoolExecutor(workers) as pool:
             list(pool.map(render_chunk, range(len(chunks))))
         listing = Path(tmp) / "parts.txt"
-        listing.write_text("".join(f"file '{p.as_posix()}'\n" for p in parts), encoding="utf-8")
+        quoted = (p.as_posix().replace("'", "'\\''") for p in parts)  # concat list quoting
+        listing.write_text("".join(f"file '{q}'\n" for q in quoted), encoding="utf-8")
         subprocess.run(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0",
              "-i", str(listing), "-map", "0:v", "-map", "0:a", "-c:v", "copy", *AUDIO_CODEC,

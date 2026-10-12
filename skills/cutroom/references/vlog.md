@@ -47,7 +47,7 @@ Start one sub-agent per chapter or shard with: the brief, the approved `story.md
 
 Rules for the agents: take every part a beat needs (setup, process, payoff), not just the best line; keep fumbles and crosstalk when they show the process (`raw: true`); cut true dead time (walking with nothing happening, waiting, unrelated chatter); include visual-only moments the outline asks for, using the contact sheets for timing.
 
-Then `cutroom candidates <folder>` to check them, write `selects` in story order (not score order: the story decides), and keep `beat`, `role`, `raw`, `intent`. `cutroom candidates --write-selects` writes capture order; reorder afterwards if the story needs it.
+Name the files in play order (`part-1.json`, `part-2.json`, ...), each list in play order. Then `cutroom candidates <folder>` checks them, and `cutroom candidates <folder> --write-selects --story-order` writes them as selects in story order (not capture or score order: the story decides), keeping `beat`, `role`, `raw` and `intent`.
 
 ## 5. Read-through, review, export
 

@@ -113,3 +113,14 @@ def write_cut_package(
     print(f"\noutput duration: {before_ms / 1000:.1f}s -> {after_ms / 1000:.1f}s (saved {saved:.1f}s)")
     print(f"wrote: {dst}")
     return dst
+
+
+def edited_ranges(src: Path) -> list[Range]:
+    # source ranges (ms) the project already shows: the union of its recording
+    # slices. anything outside was cut by hand in screen studio before cutroom ran.
+    from .core import merge_ranges
+
+    project = _read_json(src / "project.json")["json"]
+    return merge_ranges([(s["sourceStartMs"], s["sourceEndMs"])
+                         for scene in project["scenes"] if scene.get("type") == "recording"
+                         for s in scene["slices"]])

@@ -7,11 +7,14 @@
 import json
 import re
 import subprocess
+import sys
+import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 from xml.sax.saxutils import escape, quoteattr
 
-from .core import Range
+from .core import Range, merge_ranges
 
 REC709 = "1-1-1 (Rec. 709)"
 HLG = "9-18-9 (Rec. 2020 HLG)"
@@ -164,3 +167,47 @@ def write_fcpxml(
 '''
     dst.write_text(xml, encoding="utf-8")
     print(f"wrote fcpxml timeline: {dst} ({len(clips)} clips)")
+
+
+def _time(value: str | None) -> Fraction:
+    # fcpxml rational time "1001/30000s", "12s" or "0s" -> seconds
+    if not value:
+        return Fraction(0)
+    return Fraction(value.rstrip("s"))
+
+
+def read_keeps(timeline: Path, media: Path) -> list[Range]:
+    # the source ranges (ms) a final cut pro timeline uses from one media file,
+    # in timeline order. this is how edits made by hand in fcp come back: fcp
+    # exports the project (file > export xml) and these ranges become the cut.
+    root = ET.parse(timeline).getroot()
+    target = media.resolve()
+    assets = {}
+    for asset in root.iter("asset"):
+        rep = asset.find("media-rep")
+        src = rep.get("src") if rep is not None else asset.get("src")
+        if src and Path(unquote(urlparse(src).path)).resolve() == target:
+            assets[asset.get("id")] = _time(asset.get("start"))
+    if not assets:
+        sys.exit(f"{timeline.name} does not reference {media.name}")
+    spine = root.find(".//sequence/spine")
+    if spine is None:
+        sys.exit(f"{timeline.name} has no sequence")
+    ranges = []
+    for el in spine:
+        if el.tag == "gap":
+            continue
+        if el.tag == "asset-clip" and el.get("ref") in assets:
+            start = _time(el.get("start")) - assets[el.get("ref")]
+            end = start + _time(el.get("duration"))
+            ranges.append((float(start) * 1000, float(end) * 1000))
+            continue
+        refs = {x.get("ref") for x in el.iter() if x.get("ref")}
+        if refs & assets.keys():
+            sys.exit(f"{timeline.name}: a <{el.tag}> on the main storyline uses {media.name}; only plain "
+                     f"clips can be read back (no compound, multicam or retimed clips)")
+    if not ranges:
+        sys.exit(f"{timeline.name} has no clips from {media.name} on its main storyline")
+    if any(b[0] < a[1] - 1 for a, b in zip(ranges, ranges[1:])):
+        sys.exit(f"{timeline.name}: clips are reordered or repeated; cutroom edits keep source order")
+    return merge_ranges(ranges)

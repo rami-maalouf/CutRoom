@@ -151,6 +151,7 @@ PAGE = r"""<!doctype html>
   header h1 { font-size: 18px; font-weight: 600; margin: 0; }
   header .stats { color: var(--muted); }
   main { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 16px; padding: 0 24px; }
+  main.reading { grid-template-columns: minmax(0, 1fr) minmax(400px, 46%); }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
   .player { padding: 12px; }
   video, .audio-stage { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; display: block; }
@@ -191,6 +192,7 @@ PAGE = r"""<!doctype html>
   .story li.nested { margin-left: 36px; list-style: circle; }
   .story table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 8px 0; }
   .story th, .story td { border: 1px solid var(--line); padding: 4px 6px; vertical-align: top; text-align: left; }
+  .story td:first-child, .story td:last-child { white-space: nowrap; }
   .story code { font-size: 12px; background: var(--bg); padding: 0 4px; border-radius: 4px; }
   .seg.short { background: rgba(94, 92, 230, .14); border: 1px solid var(--short); border-radius: 4px;
                color: var(--short); font-size: 10px; font-weight: 600; padding-left: 3px; overflow: hidden; white-space: nowrap; }
@@ -220,7 +222,7 @@ PAGE = r"""<!doctype html>
   footer .row { display: flex; align-items: center; gap: 10px; }
   footer textarea { width: 100%; height: 84px; margin-top: 8px; resize: vertical; border: 1px solid var(--line);
                     border-radius: 8px; padding: 8px; font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--ink); }
-  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } aside { max-height: none; } }
+  @media (max-width: 1000px) { main, main.reading { grid-template-columns: 1fr; } aside { max-height: none; } }
 </style>
 </head>
 <body>
@@ -260,7 +262,7 @@ PAGE = r"""<!doctype html>
 </main>
 <footer class="card">
   <div class="row"><strong>Feedback for the agent</strong>
-    <span class="tag">toggle Reject or Pick, then copy this</span>
+    <span class="tag" id="hint">toggle Reject or Pick, then copy this</span>
     <button id="copy" style="margin-left:auto">Copy</button></div>
   <textarea id="feedback" readonly></textarea>
 </footer>
@@ -561,6 +563,8 @@ function render() {
     b.classList.toggle("on", b.dataset.tab === tab);
     b.textContent = count ? `${label} (${count()})` : label;
   });
+  // the story is a document to read: give it room
+  document.querySelector("main").classList.toggle("reading", tab === "story");
   $("list").innerHTML = TABS[tab][1]();
   feedback();
 }
@@ -585,6 +589,7 @@ if (FOLDER) {
     <span><i style="background:var(--retake)"></i>retake cut</span><span><i style="background:var(--manual)"></i>manual cut</span>
     <span><i style="outline:1.5px dashed var(--rejected)"></i>rejected</span><span><i style="background:var(--cut)"></i>dropped select</span>
     <span><i style="background:var(--short)"></i>short candidate</span>`;
+  $("hint").textContent = "toggle Drop, Reject or Pick, then copy this";
 }
 $("title").textContent = D.title;
 const judged = D.decisions.filter((d) => d.status === "cut").length;

@@ -46,6 +46,7 @@ cutroom video talk.mp4 --yes                                 # renders talk-clea
 cutroom project ~/Movies/demo.screenstudio --yes             # writes demo-clean.screenstudio
 cutroom export talk.mp4 S3 S5                                # short candidates -> talk-S3.fcpxml, talk-S5.fcpxml
 cutroom import talk.mp4 edited-in-fcp.fcpxml                 # make a Final Cut timeline the edit
+cutroom script talk.mp4                                      # read-through: the cut as a script
 cutroom transcribe talk.mp4                                  # only writes talk.transcript.json
 cutroom digest ~/Movies/weekend                              # a folder of clips: see below
 ```
@@ -69,6 +70,18 @@ Useful flags (all commands that plan cuts):
 | `--yes` | approve everything without asking (also the behavior without a terminal) |
 
 For Screen Studio projects, an edit you already made in Screen Studio counts as cut: CutRoom only works inside the part your project shows.
+
+## Styles: talking head and vlog
+
+Every project has a `style` in its project file. It sets cutroom's defaults, and it tells the agent which editing instructions to follow (`skills/cutroom/references/`).
+
+| | `talking-head` (a single file, the default) | `vlog` (a folder, the default) |
+|---|---|---|
+| Material | audio only: the words carry it | words and picture: contact sheets and a clip log for every clip |
+| Retakes | detected and cut: a repeated opening is a mistake | off: fumbles and asides are part of the story (`--retakes` turns it on) |
+| Pacing | `balanced` | `relaxed`: only long pauses go |
+
+Both share a story-first core: a brief, then a story outline (`story.md`, shown on the review page's Story tab, approved before any selection), then selects that fill the story's beats, then a read-through (`cutroom script`) before review. A select or short can be `"raw": true` to play exactly as it happened. Explicit flags always beat the style defaults.
 
 ## The project file
 
@@ -111,7 +124,7 @@ Why not iterate inside Final Cut Pro: an FCPXML import always creates a new proj
 A folder of clips (a shoot, an event weekend) is one source. Clips sit on one timeline in capture order (iPhone creation date, then the file's `creation_time`, then its modified time), and everything CutRoom keeps lives in a visible `<folder>/cutroom/` subfolder: the project file, one transcript per clip, the digest, contact sheets, the review page and exports.
 
 ```bash
-cutroom digest ~/Movies/weekend --shards 5 --sheets   # transcribe every clip once, write agent digest shards
+cutroom digest ~/Movies/weekend --shards 5            # transcribe every clip once, contact sheets, digest shards
 cutroom review ~/Movies/weekend --open                # the vlog, by chapter, played from the original files
 cutroom export ~/Movies/weekend vlog S2               # cutroom/exports/weekend-vlog.fcpxml and -S2.fcpxml
 ```

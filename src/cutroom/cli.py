@@ -405,12 +405,14 @@ def run_candidates(args) -> None:
         select = {"clip": c["clip"], "start": round(c["start"], 2), "end": round(c["end"], 2)}
         for key in ("chapter", "beat", "role", "raw", "intent", "title", "why", "score"):
             if c.get(key) not in (None, ""):
-                select[key] = c[key]
+                # agents sometimes number their beats: the project file keeps text
+                select[key] = str(c[key]) if key in project.TEXT_FIELDS else c[key]
         merged.append(select)
-    data = project.load(src, set(durations))
+    data = project.load(src, set(durations), new_selects=True)
     data["selects"] = [{"id": f"V{i}", **m} for i, m in enumerate(merged, 1)]
     path = project.save(src, data)
-    print(f"\nwrote {len(merged)} selects (score >= {args.min_score}) to {path}")
+    how = "in story order" if args.story_order else f"score >= {args.min_score}"
+    print(f"\nwrote {len(merged)} selects ({how}) to {path}")
     print(f"next: cutroom review {json.dumps(str(src))} --open")
 
 

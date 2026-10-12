@@ -89,6 +89,34 @@ def test_story_order_keeps_beats_and_their_fields(shoot):
     assert selects[0]["raw"] is True and selects[1]["intent"] == "open the day"
 
 
+def test_numbered_beats_become_text_and_the_read_through_works(shoot):
+    # agents filling a story sometimes write "beat": 3; the project file keeps text
+    cand = shoot / "cutroom" / "candidates"
+    cand.mkdir(parents=True)
+    (cand / "part-1.json").write_text(json.dumps([
+        {"clip": "cam/a.mp4", "start": 4.0, "end": 5.9, "chapter": "Cold open", "beat": 0, "role": "hook"},
+        {"clip": "phone/c.mov", "start": 0.0, "end": 1.9, "chapter": "Morning", "beat": 1, "role": "setup"},
+    ]))
+    main(["candidates", str(shoot), "--write-selects", "--story-order"])
+    selects = json.loads(project.project_path(shoot).read_text(encoding="utf-8"))["selects"]
+    assert [s["beat"] for s in selects] == ["0", "1"]
+    main(["script", str(shoot)])
+    assert "### V2" in (shoot / "cutroom" / "script.md").read_text(encoding="utf-8")
+
+
+def test_a_hand_edited_numeric_beat_is_a_clear_error(shoot):
+    project.save(shoot, {"v": 2, "style": "vlog", "edits": {"cuts": [], "keeps": []}, "shorts": [], "selects": [
+        {"id": "V1", "clip": "cam/a.mp4", "start": 4.0, "end": 5.9, "beat": 2}]})
+    with pytest.raises(SystemExit, match='V1 "beat" must be text'):
+        main(["script", str(shoot)])
+    # writing new selects from candidates repairs the file
+    cand = shoot / "cutroom" / "candidates"
+    cand.mkdir(parents=True)
+    (cand / "part-1.json").write_text(json.dumps([{"clip": "cam/a.mp4", "start": 4.0, "end": 5.9, "beat": 2}]))
+    main(["candidates", str(shoot), "--write-selects", "--story-order"])
+    main(["script", str(shoot)])
+
+
 def test_a_reordered_talking_head_exports_and_renders_in_select_order(tmp_path):
     from conftest import probe_duration
     video = make_video(tmp_path / "talk.mp4", SPEECH)

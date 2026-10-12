@@ -31,6 +31,8 @@ VERSION = 2
 # the kind of video: decides the defaults (see STYLE_DEFAULTS in cli.py) and
 # which instructions the agent follows (skills/cutroom/references/<style>.md)
 STYLES = ("talking-head", "vlog")
+# free text on selects and shorts: shown on the review page and in the read-through
+TEXT_FIELDS = ("chapter", "beat", "role", "intent", "title", "why")
 
 
 def project_path(src: Path) -> Path:
@@ -39,8 +41,9 @@ def project_path(src: Path) -> Path:
     return src.with_suffix(".cutroom.json")
 
 
-def load(src: Path, clips: set[str] | None = None) -> dict:
-    # clips: the folder's clip paths (None for a single source)
+def load(src: Path, clips: set[str] | None = None, new_selects: bool = False) -> dict:
+    # clips: the folder's clip paths (None for a single source). new_selects:
+    # the caller replaces every select, so the old ones are dropped unchecked
     path = project_path(src)
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     if data.get("v", VERSION) not in (1, VERSION):
@@ -53,6 +56,8 @@ def load(src: Path, clips: set[str] | None = None) -> dict:
     data.setdefault("style", "vlog" if clips is not None else "talking-head")
     data.setdefault("selects", [])
     data.setdefault("shorts", [])
+    if new_selects:
+        data["selects"] = []
     validate(data, path, clips)
     return data
 
@@ -89,6 +94,9 @@ def validate(data: dict, path: Path, clips: set[str] | None) -> None:
     for item in data["selects"] + data["shorts"]:
         if "raw" in item and not isinstance(item["raw"], bool):
             sys.exit(f"{path.name}: {item.get('id')} \"raw\" must be true or false")
+        for key in TEXT_FIELDS:
+            if key in item and not isinstance(item[key], str):
+                sys.exit(f"{path.name}: {item.get('id')} \"{key}\" must be text, got {item[key]!r}")
     for key in ("cuts", "keeps"):
         for item in data["edits"][key]:
             if isinstance(item, list) and len(item) < 2:

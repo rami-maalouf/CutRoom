@@ -1,3 +1,7 @@
+import json
+import re
+import subprocess
+
 import pytest
 
 from cutroom.media import collect_silences, detect_silences, probe_video, render, versioned_output
@@ -56,3 +60,58 @@ def test_silencedetect_failure_exits_with_message(tmp_path):
     bogus.write_text("nope")
     with pytest.raises(SystemExit, match="silencedetect failed"):
         detect_silences(bogus, -35, 0.6, 1000)
+
+
+def stream_durations(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration",
+                          "-of", "json", str(path)], capture_output=True, text=True, check=True).stdout
+    return {s["codec_type"]: float(s["duration"]) for s in json.loads(out)["streams"]}
+
+
+def test_chunked_render_keeps_audio_in_sync_across_chunk_joins(tmp_path):
+    # 12 tone segments separated by silence; keeping only the tones in 3 chunks
+    # must leave no silence behind and keep audio and video the same length
+    pattern = [p for _ in range(12) for p in (("tone", 0.5), ("silence", 0.5))]
+    video = make_video(tmp_path / "v.mp4", pattern)
+    keeps = [(i * 1000, i * 1000 + 500) for i in range(12)]
+    out = tmp_path / "out.mp4"
+    render(video, keeps, out, chunk_segments=4)
+    assert abs(probe_duration(out) - 6.0) < 0.15
+    durations = stream_durations(out)
+    assert abs(durations["video"] - durations["audio"]) < 0.1
+    assert detect_silences(out, -35, 0.2, 6000) == []
+
+
+def flash_and_beep_onsets(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-f", "lavfi", f"movie={path.as_posix()},signalstats",
+                          "-show_entries", "frame=pts_time:frame_tags=lavfi.signalstats.YAVG", "-of", "json"],
+                         capture_output=True, text=True, check=True).stdout
+    frames = [(float(f["pts_time"]), float(f["tags"]["lavfi.signalstats.YAVG"]))
+              for f in json.loads(out)["frames"]]
+    flashes = [t for (t, y), (_, prev) in zip(frames[1:], frames) if y > 128 >= prev]
+    err = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-map", "0:a:0",
+                          "-af", "silencedetect=noise=-30dB:d=0.05", "-f", "null", "-"],
+                         capture_output=True, text=True).stderr
+    beeps = [float(x) for x in re.findall(r"silence_end: ([\d.]+)", err)]
+    return flashes, beeps
+
+
+@pytest.mark.parametrize("chunk_segments", [1000, 7], ids=["single-pass", "chunked"])
+def test_render_keeps_picture_and_sound_in_sync(tmp_path, chunk_segments):
+    # a white flash and a beep start together every 1.37s; 30 kept segments with
+    # boundaries off the frame grid. every beep must stay within one frame of its flash.
+    src = tmp_path / "sync.mp4"
+    period, length = 1.37, 0.12
+    subprocess.run(["ffmpeg", "-v", "error", "-y",
+                    "-f", "lavfi", "-i", "color=black:s=320x240:r=30:d=60",
+                    "-f", "lavfi", "-i",
+                    f"aevalsrc='if(lt(mod(t,{period}),{length}),sin(2*PI*1000*t),0)':s=48000:d=60",
+                    "-vf", f"drawbox=c=white:t=fill:enable='lt(mod(t,{period}),{length})'",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-shortest", str(src)], check=True)
+    out = tmp_path / "out.mp4"
+    render(src, [(i * 2000 + 13, i * 2000 + 1517) for i in range(30)], out, chunk_segments=chunk_segments)
+    flashes, beeps = flash_and_beep_onsets(out)
+    assert len(flashes) > 30
+    offsets = [min((b - f for b in beeps), key=abs) for f in flashes]
+    assert max(map(abs, offsets)) < 0.045

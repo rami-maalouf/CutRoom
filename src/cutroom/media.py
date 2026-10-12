@@ -71,28 +71,74 @@ def probe_video(video: Path) -> tuple[float, bool]:
     return duration_ms, has_audio
 
 
-def render(video: Path, keeps: list[Range], dst: Path) -> None:
-    # frame-accurate assembly of kept ranges via trim/concat, re-encoded.
-    # kept ranges are in source order, so each trim finishes before the next
-    # one starts receiving frames and concat never buffers whole segments.
+VIDEO_CODEC = ["-c:v", "libx264", "-crf", "18", "-preset", "medium"]
+AUDIO_CODEC = ["-c:a", "aac", "-b:a", "192k"]
+# every decoded frame passes through every segment's trim filter, on one
+# thread, so a single pass slows down with (source length x segment count).
+# long cut lists are rendered as chunks of at most this many segments.
+CHUNK_SEGMENTS = 24
+
+
+def _trim_script(keeps: list[Range], offset_ms: float) -> str:
+    # trim/concat graph for kept ranges, times relative to offset_ms (the seek point).
+    # concat pads each segment to its longest stream, so audio never drifts.
     parts_v, parts_a, labels = [], [], []
     for i, (s, e) in enumerate(keeps):
-        ss, es = s / 1000, e / 1000
+        ss, es = (s - offset_ms) / 1000, (e - offset_ms) / 1000
         parts_v.append(f"[0:v:0]trim=start={ss:.3f}:end={es:.3f},setpts=PTS-STARTPTS[v{i}];")
         parts_a.append(f"[0:a:0]atrim=start={ss:.3f}:end={es:.3f},asetpts=PTS-STARTPTS[a{i}];")
         labels.append(f"[v{i}][a{i}]")
-    script = "\n".join(parts_v + parts_a) + \
-        f"\n{''.join(labels)}concat=n={len(keeps)}:v=1:a=1[v][a]"
+    return "\n".join(parts_v + parts_a) + f"\n{''.join(labels)}concat=n={len(keeps)}:v=1:a=1[v][a]"
+
+
+def _render_pass(video: Path, keeps: list[Range], dst: Path, codec_args: list[str],
+                 seek_ms: float = 0.0, extra: list[str] = ()) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         script_path = Path(tmp) / "filter.txt"
-        script_path.write_text(script, encoding="utf-8")
-        print(f"rendering {len(keeps)} segments -> {dst.name} ...")
+        script_path.write_text(_trim_script(keeps, seek_ms), encoding="utf-8")
+        seek = ["-ss", f"{seek_ms / 1000:.3f}"] if seek_ms else []
         subprocess.run(
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-stats",
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", *extra, *seek,
              "-i", str(video), "-filter_complex_script", str(script_path),
-             "-map", "[v]", "-map", "[a]",
-             "-c:v", "libx264", "-crf", "18", "-preset", "medium",
-             "-c:a", "aac", "-b:a", "192k", str(dst)],
+             "-map", "[v]", "-map", "[a]", *codec_args, str(dst)],
+            check=True,
+        )
+
+
+def render(video: Path, keeps: list[Range], dst: Path,
+           chunk_segments: int = CHUNK_SEGMENTS) -> None:
+    # frame-accurate assembly of kept ranges, re-encoded
+    if len(keeps) <= chunk_segments:
+        print(f"rendering {len(keeps)} segments -> {dst.name} ...")
+        _render_pass(video, keeps, dst, VIDEO_CODEC + AUDIO_CODEC, extra=["-stats"])
+        return
+
+    # long cut lists: each chunk seeks straight to its first segment (accurate
+    # seek) and renders in parallel. audio stays pcm until one final aac encode,
+    # and each chunk starts both streams together, so the joins stay in sync.
+    chunks = [keeps[i:i + chunk_segments] for i in range(0, len(keeps), chunk_segments)]
+    cpus = os.cpu_count() or 1
+    workers = max(1, min(len(chunks), cpus // 4))
+    threads = max(1, cpus // workers)
+    print(f"rendering {len(keeps)} segments in {len(chunks)} chunks "
+          f"({workers} at a time) -> {dst.name} ...")
+    with tempfile.TemporaryDirectory(dir=dst.parent, prefix=".cutroom-render-") as tmp:
+        parts = [Path(tmp) / f"part-{i:04d}.mkv" for i in range(len(chunks))]
+
+        def render_chunk(i: int) -> None:
+            _render_pass(video, chunks[i], parts[i],
+                         VIDEO_CODEC + ["-threads", str(threads), "-c:a", "pcm_s16le"],
+                         seek_ms=chunks[i][0][0])
+            print(f"  chunk {i + 1}/{len(chunks)} done")
+
+        with ThreadPoolExecutor(workers) as pool:
+            list(pool.map(render_chunk, range(len(chunks))))
+        listing = Path(tmp) / "parts.txt"
+        listing.write_text("".join(f"file '{p.as_posix()}'\n" for p in parts), encoding="utf-8")
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0",
+             "-i", str(listing), "-map", "0:v", "-map", "0:a", "-c:v", "copy", *AUDIO_CODEC,
+             "-movflags", "+faststart", str(dst)],
             check=True,
         )
 

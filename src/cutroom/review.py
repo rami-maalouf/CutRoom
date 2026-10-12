@@ -365,14 +365,16 @@ function tick() {
   if (x !== null) $("playhead").style.left = `${(x / AX) * 100}%`;
   const file = FOLDER && session >= 0 ? `${D.media[session].name} ${fmt(el.currentTime)}` : `source ${fmt(t)} / ${fmt(D.durationSeconds)}`;
   let clock = file;
-  if (inProgram) clock = `${FOLDER ? "vlog" : "clean"} ${fmt(x)} / ${fmt(D.keptSeconds)}  ·  ${clock}`;
+  if (inProgram) clock = `${NOVLOG ? "all footage, pauses removed" : FOLDER ? "vlog" : "clean"} ${fmt(x)} / ${fmt(D.keptSeconds)}  ·  ${clock}`;
   else if (playlist && playlist !== D.keeps) clock = `${$("clock").dataset.label}  ·  ${clock}`;
   $("clock").textContent = clock;
   $("toggle").textContent = el.paused ? "Play" : "Pause";
   requestAnimationFrame(tick);
 }
 
-$("mode-clean").textContent = FOLDER ? "Vlog" : "Clean cut";
+// before selects exist a folder has no vlog yet: the player shows all footage
+const NOVLOG = FOLDER && !D.selects.length;
+$("mode-clean").textContent = NOVLOG ? "All footage" : FOLDER ? "Vlog" : "Clean cut";
 $("mode-clean").onclick = () => setMode("clean");
 $("mode-original").onclick = () => setMode("original");
 $("toggle").onclick = () => {

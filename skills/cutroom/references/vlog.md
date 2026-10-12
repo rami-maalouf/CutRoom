@@ -55,6 +55,7 @@ Read the brief, all of `log.md` and the digest lines you need, yourself: this is
 - **Beats are sequences across clips:** setup -> process -> payoff. The process part is often `raw`.
 - **Running threads** make it feel written: a gag planted early and paid off later, a person who appears twice, a question the hook asks and the ending answers.
 - **Visual-only beats** (2-5 s) between talking moments give rhythm.
+- **Talking heads to record** (core.md): where a line from the creator would clarify a jump or deliver the brief's lesson. Write them to the story and to `cutroom.json` `pickups` (no `after` yet), so the review page lists them on the To record tab.
 - **List what you leave out and why**, and **the facts only the user can confirm** (is this the same person? may we use this guest's line? the spelling of a name). Settle what the footage can settle yourself (compare contact sheets, read a slide).
 
 Run `cutroom review <folder> --open` and stop. The page opens on the Story tab; before selects exist its player says "All footage" (the whole shoot with pauses removed, not the cut).
@@ -86,11 +87,12 @@ cutroom candidates <folder> --write-selects --story-order     # selects in play 
 
 1. **Fit the length.** Parts usually overrun their budgets. Cut in this order: repeats, the middle of long answers, a second piece that says what the first said, warm-up lines before the real line. Never cut a setup whose payoff stays, or a payoff whose setup stays. To trim a select precisely, read its words with times from `transcripts/<clip>.transcript.json` and set `start`/`end` on word boundaries.
 2. **Run the read-through checklist** (core.md), then re-run `cutroom script`. Renumber selects (V1, V2, ...) before the user sees them; after that, keep ids stable.
-3. **Shorts:** one beat each from the finished cut, `{"id": "S1", "title", "why", "segments": [{"clip", "start", "end"}, ...]}`, standalone gate from core.md.
+3. **Place the talking heads:** set each pickup's `"after"` to the select it follows (`cutroom candidates --write-selects` renumbers selects and unplaces them). Add one where the read-through finds a jump the footage cannot bridge. The read-through prints them in place, with the time still to record in its header.
+4. **Shorts:** one beat each from the finished cut, `{"id": "S1", "title", "why", "segments": [{"clip", "start", "end"}, ...]}`, standalone gate from core.md.
 
 ### 8. Review and feedback
 
-`cutroom review <folder> --open`. The user watches the Vlog (Play), plays any select or short, and toggles Drop (a select), Reject (a retake cut, if retakes were on) and Pick (a short), then Copy. Apply the feedback to `cutroom.json` (remove dropped selects, add keeps, note picked shorts), re-run `cutroom script` and `cutroom review`, and write every correction into taste.md as a rule.
+`cutroom review <folder> --open`. The user watches the Vlog (Play; a slate marks each talking head to record), plays any select or short, and toggles Drop (a select or a talking head), Reject (a retake cut, if retakes were on) and Pick (a short), then Copy. When the user has recorded the talking heads (To record tab), add the files to the folder, make each a select in its place and remove its pickup. Apply the feedback to `cutroom.json` (remove dropped selects, add keeps, note picked shorts), re-run `cutroom script` and `cutroom review`, and write every correction into taste.md as a rule.
 
 ### 9. Export
 

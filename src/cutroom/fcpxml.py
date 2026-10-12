@@ -108,12 +108,14 @@ def write_timeline(
     project_name: str,
     markers: list[tuple[Path, float, str]] = (),
     chapters: dict[int, str] | None = None,
+    notes: list[tuple[int, bool, str]] = (),
 ) -> None:
     # a final cut pro timeline (fcpxml 1.10) of source ranges from any number of
     # files, referencing the original media - no re-encoding. fcp needs
     # frame-aligned rational times: clip starts sit on each file's own frame
     # grid (offset by the file's timecode, which fcp reads), offsets and
     # durations on the sequence grid. chapters: segment index -> title.
+    # notes: (segment index, at its end?, text) markers, e.g. a talking head to record.
     chapters = chapters or {}
     media = {}
     for seg in segments:
@@ -185,6 +187,10 @@ def write_timeline(
             ms, text = queue.pop(0)
             m_fr = max(round(ms / 1000 * fps), start_fr)
             inner += (f'\n            <marker start="{at(a["tc"] + m_fr, fps)}" '
+                      f'duration="{at(1, fps)}" value={quoteattr(text)}/>')
+        for _, at_end, text in [n for n in notes if n[0] == i]:
+            n_fr = max(end_fr - 1, start_fr) if at_end else start_fr
+            inner += (f'\n            <marker start="{at(a["tc"] + n_fr, fps)}" '
                       f'duration="{at(1, fps)}" value={quoteattr(text)}/>')
         tc = ' tcFormat="DF"' if a["tcFormat"] == "DF" else ""
         label = seg[3] if len(seg) > 3 else f"{path.stem} {s_ms / 1000:.1f}s"

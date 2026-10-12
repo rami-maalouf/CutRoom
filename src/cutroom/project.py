@@ -7,6 +7,8 @@
 #   edits.keeps  ranges that are never cut (rejects a proposed cut)
 #   selects      folders: the vlog, an ordered list of moments     (V1, V2, ...)
 #   shorts       short-form candidates                             (S1, S2, ...)
+#   pickups      talking heads to record: a line to camera (or a voiceover)
+#                that explains what the footage cannot          (P1, P2, ...)
 #   style        "talking-head" or "vlog" (default: vlog for a folder)
 #   ignore       folders: patterns for files that are not footage, e.g.
 #                "*-bad-quality.mp4" (matched against the path inside the folder)
@@ -19,8 +21,13 @@
 # seconds inside that clip; for a single source "clip" is left out (and the
 # short list form [start, end, note] still works). anchoring times to clips
 # means adding a file to the folder never moves an existing decision.
-# cutroom only stores, shows and exports selects and shorts; choosing them is
-# an editorial judgment made by an agent or a person.
+# a pickup is footage that does not exist yet: {"id": "P1", "after": "V12",
+# "kind": "talking-head" | "voiceover", "seconds": 20, "purpose": "...",
+# "points": ["..."], "draft": "..."}. "after" places it after a select ("start"
+# opens the video); without it the pickup is a suggestion not placed yet.
+# once recorded, the new file becomes a select and the pickup is removed.
+# cutroom only stores, shows and exports selects, shorts and pickups; choosing
+# them is an editorial judgment made by an agent or a person.
 
 import json
 import re
@@ -35,6 +42,7 @@ VERSION = 2
 STYLES = ("talking-head", "vlog")
 # free text on selects and shorts: shown on the review page and in the read-through
 TEXT_FIELDS = ("chapter", "beat", "role", "intent", "title", "why")
+PICKUP_KINDS = ("talking-head", "voiceover")
 
 
 def project_path(src: Path) -> Path:
@@ -58,8 +66,16 @@ def load(src: Path, clips: set[str] | None = None, new_selects: bool = False) ->
     data.setdefault("style", "vlog" if clips is not None else "talking-head")
     data.setdefault("selects", [])
     data.setdefault("shorts", [])
+    data.setdefault("pickups", [])
     if new_selects:
         data["selects"] = []
+        # select ids are renumbered: a placed pickup has to be placed again
+        unplaced = [p["id"] for p in data["pickups"] if p.get("after") not in (None, "start")]
+        for p in data["pickups"]:
+            if p["id"] in unplaced:
+                p.pop("after")
+        if unplaced:
+            print(f"pickups {', '.join(unplaced)} are no longer placed: set their \"after\" again")
     validate(data, path, clips)
     return data
 
@@ -111,6 +127,28 @@ def validate(data: dict, path: Path, clips: set[str] | None) -> None:
             if isinstance(item, list) and len(item) < 2:
                 sys.exit(f"{path.name}: edits.{key} entries must be [start, end, note?], got {item!r}")
             check_range(_as_range(item), f"edits.{key} entry")
+    select_ids = {item.get("id") for item in data["selects"]}
+    ids = set()
+    for item in data["pickups"]:
+        iid = item.get("id", "")
+        if not re.fullmatch(r"P\d+", iid) or iid in ids:
+            sys.exit(f"{path.name}: every entry in pickups needs a unique id like P1, got {iid!r}")
+        ids.add(iid)
+        if not isinstance(item.get("purpose"), str) or not item["purpose"]:
+            sys.exit(f"{path.name}: {iid} needs a \"purpose\": what the talking head explains")
+        if item.get("kind", "talking-head") not in PICKUP_KINDS:
+            sys.exit(f"{path.name}: {iid} \"kind\" must be one of {', '.join(PICKUP_KINDS)}")
+        if "after" in item and item["after"] != "start" and item["after"] not in select_ids:
+            sys.exit(f"{path.name}: {iid} goes after {item['after']!r}, which is not a select (or \"start\")")
+        seconds = item.get("seconds", 20)
+        if not isinstance(seconds, (int, float)) or seconds <= 0:
+            sys.exit(f"{path.name}: {iid} \"seconds\" must be a positive number, got {seconds!r}")
+        points = item.get("points", [])
+        if not (isinstance(points, list) and all(isinstance(x, str) for x in points)):
+            sys.exit(f"{path.name}: {iid} \"points\" must be a list of text")
+        for key in TEXT_FIELDS + ("draft",):
+            if key in item and not isinstance(item[key], str):
+                sys.exit(f"{path.name}: {iid} \"{key}\" must be text, got {item[key]!r}")
     for key, prefix in (("selects", "V"), ("shorts", "S")):
         ids = set()
         for item in data[key]:
@@ -140,6 +178,15 @@ def edit_ranges(data: dict, key: str, offsets: dict[str, float] | None = None
 def selects(data: dict, offsets: dict[str, float] | None = None) -> list[dict]:
     # ordered selects with timeline ranges: {"id", "startMs", "endMs", "chapter", ...}
     return [{**s, "startMs": _ms(s, offsets)[0], "endMs": _ms(s, offsets)[1]} for s in data["selects"]]
+
+
+def pickups_after(data: dict) -> dict[str, list[dict]]:
+    # placed pickups by the select they follow ("start": before the first select)
+    out: dict[str, list[dict]] = {}
+    for p in data["pickups"]:
+        if p.get("after"):
+            out.setdefault(p["after"], []).append(p)
+    return out
 
 
 def find(data: dict, iid: str) -> dict:

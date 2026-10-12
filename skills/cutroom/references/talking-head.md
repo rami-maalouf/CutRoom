@@ -32,6 +32,7 @@ Story-first, following core.md's order of work. For a talking head:
    - **Payoff:** the answer, the result, the lesson.
    - **Close:** one line that answers the hook. Cut the "so yeah, that's it" after it.
    - Tangents go unless they are the most human moment of the video.
+   - **Talking heads to record** (core.md): a missing transition, a fact said wrong, a promise the recording never made. Store them as `pickups`; once recorded, the new file is edited the same way and joined in the editor.
    Then `cutroom review <source> --open`, point the user to the Story tab, and **stop for approval**.
 4. **Selects:** write the approved story as `selects` in play order (`{"id": "V1", "start", "end", "beat", "role", "intent"}`, no `clip`). Times come from the report's sentences; cutroom snaps them to whole words. Without selects, the clean cut plays in recorded order.
 5. **Read-through:** `cutroom script <source>`, fix every checklist problem, then hand over the review page.

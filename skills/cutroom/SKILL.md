@@ -50,7 +50,7 @@ Unsure about the style (for example one long recording of an event) or the depth
 | `cutroom import <video> <edited.fcpxml>` | a timeline edited by hand in Final Cut becomes the edit |
 | `cutroom transcribe <media>` | word-level transcript cache only |
 
-Every command reads the project file (`<name>.cutroom.json`, or `<folder>/cutroom/cutroom.json`): `style`, `edits.cuts`, `edits.keeps`, `selects` (V1...), `shorts` (S1...). Edit the file; never rely on one-off flags you will forget. Without a terminal cutroom approves everything it proposes, so review comes before any write. Transcripts are cached, so every re-plan after the first takes seconds.
+Every command reads the project file (`<name>.cutroom.json`, or `<folder>/cutroom/cutroom.json`): `style`, `ignore`, `edits.cuts`, `edits.keeps`, `selects` (V1...), `shorts` (S1...), `pickups` (P1...: talking heads for the user to record where the footage cannot explain itself, see core.md). Edit the file; never rely on one-off flags you will forget. Without a terminal cutroom approves everything it proposes, so review comes before any write. Transcripts are cached, so every re-plan after the first takes seconds.
 
 ## 4. Steps that need computer use
 

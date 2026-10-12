@@ -9,8 +9,8 @@ This file is the shared core. A talking-head **clean-up** ("process my latest vi
 1. **Brief.** From the conversation, write the brief: who is talking, for whom, the angle (why this video exists), the target length, must-haves and must-nots. Talking head: `<name>.brief.md`; vlog: `<folder>/cutroom/brief.md`. Ask about anything you would otherwise guess.
 2. **Understand the material.** Read all of it before deciding anything (the style file says how: audio only for a talking head; transcript, contact sheets and a clip log for a vlog).
 3. **Story outline, then the approval gate.** Write the story (below) to `story.md` (`<name>.story.md` for a talking head, `<folder>/cutroom/story.md` for a vlog), run `cutroom review <source> --open`, and stop. Point the user to the page's Story tab. Never suggest opening the markdown in TextEdit (`open -e`): saving there converts it to `story.rtf` and cutroom no longer finds it. The user approves or corrects the story on the page's Story tab before any selection. This is the cheapest place to change direction.
-4. **Select by beat.** Fill the approved beats with footage. Each select carries `beat`, `role` and a one-line `intent` (see the schema below).
-5. **Read-through review.** `cutroom script <source>` and read the cut as a viewer would hear it. Fix every story problem (checklist below) before handing over.
+4. **Select by beat.** Fill the approved beats with footage. Each select carries `beat`, `role` and a one-line `intent` (see the schema below). Place every approved talking head to record after its select (`"after": "V12"`).
+5. **Read-through review.** `cutroom script <source>` and read the cut as a viewer would hear it. Fix every story problem (checklist below) before handing over. A problem the footage cannot fix becomes a talking head to record.
 6. **Hand over the review page.** `cutroom review <source> --open`. Feedback comes back as Drop V7, Reject R2, Pick S3; apply it to the project file and re-run (seconds, from the cache).
 7. **Export once** (`cutroom export ...`), then propose shorts if asked.
 8. **Learn.** When the user corrects a decision, write the lesson into [taste.md](taste.md) as a rule, so the next cut does not repeat it.
@@ -29,10 +29,40 @@ This file is the shared core. A talking-head **clean-up** ("process my latest vi
 | 1 | ... | ... | ... | 0:30 |
 ## Ending
 <the last line or moment, and why it closes the promise of the hook>
+## Talking heads to record
+<P1, P2...: where each goes, what it explains, why the footage cannot. Also in cutroom.json "pickups".>
 ## What I am leaving out, and why
 ```
 
 A **beat** is a small sequence, not a quote: a setup (what we are about to see or why it matters), the process (the attempt, the struggle, the conversation), and a payoff (the result, the reaction, the joke landing). Most beats need two or three selects, often from more than one clip. A payoff without its setup confuses; a setup without its payoff disappoints.
+
+## Talking heads to record (pickups)
+
+Some things the footage cannot say: who this person is, why we are suddenly on a subway, what the game is, what the creator felt, the lesson the brief wants. Then propose a short piece for the creator to record: to camera (`talking-head`) or a voiceover over footage (`voiceover`). The user approves them with the story and records them all in one sitting.
+
+Propose one when:
+- **The viewer lacks context** a single line would give: the rules, the place, why we are here, who someone is.
+- **A jump has no bridge** in the footage: a new place, a new time, a change of plan ("we said we'd go home, but...").
+- **The brief wants a lesson or commentary** that nobody said on camera (the psychology behind a moment, what a word means to the community).
+- **A key moment needs the inside view:** how it felt, what the creator noticed, what they learned. Right after the moment, never before it.
+- **A setup was never filmed** but its payoff is strong.
+
+Rules:
+- Never to repeat what the footage already shows or says. A pickup earns its place like any select.
+- 10-30 seconds each, about one per 2-3 minutes of video at most. The footage carries the video; talking heads clarify it.
+- Give the purpose and 2-4 talking points in the creator's terms. A `draft` line is optional and only a starting point: the creator says it in their own words. Never invent facts, feelings or opinions for them.
+- In the story phase, write them to the story and to `cutroom.json` as `pickups` without `after` (they show on the review page's To record tab). After selection, place each one with `"after": "V12"` (or `"start"`).
+- Once recorded: the new file goes into the folder (or is a new source for a talking head); make it a select in that place and remove the pickup.
+
+```json
+{"id": "P1", "after": "V12", "kind": "talking-head", "seconds": 20,
+ "chapter": "The first table", "beat": "why a card works",
+ "purpose": "why a question on a card is easier to answer than a question from a stranger",
+ "points": ["the card asks, not you", "skip is always allowed: safety makes openness possible"],
+ "draft": "optional first line, in the creator's voice"}
+```
+
+The review page shows each one on its To record tab (a shot list), in the Vlog list after its select, as a mark on the timeline and as a 3-second slate when the cut plays through that point; the read-through prints it in place and the exported timeline carries a marker there.
 
 ## Hooks (first 30 seconds)
 
@@ -59,7 +89,7 @@ A **beat** is a small sequence, not a quote: a setup (what we are about to see o
 - Does the first select hook? Would a stranger keep watching after 30 seconds?
 - Does every "this", "that", "he", "they" have something earlier in the cut to point to?
 - Does every payoff have its setup, and every setup its payoff?
-- Do two neighbouring selects connect, or is there a jump nobody explains? Fix with an order change, a bridge line, or a chapter break.
+- Do two neighbouring selects connect, or is there a jump nobody explains? Fix with an order change, a bridge line, or a chapter break; when the footage has no bridge, propose a talking head to record.
 - Is anything said twice? Keep the better delivery.
 - `(NOTHING LEFT AFTER CUTS)` or `(empty)` on a select means automatic cuts removed it: make it raw, or fix its range.
 - **First and last words of every select:** a stray word from the previous sentence ("meeting but like this time...", "logs which is...") means the start sits inside a word. cutroom snaps outward to whole words, so move the start to the END time of that word.

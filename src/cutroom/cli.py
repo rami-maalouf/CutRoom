@@ -449,13 +449,23 @@ def run_export(args) -> None:
             path = job.exports / f"{job.stem}{tag}.fcpxml"
             dst = path if job.kind == "folder" else versioned_output(path, job.src)
             # a program range can cross a clip join; chapters go on its first piece
-            segments, seg_chapters = [], {}
+            segments, seg_chapters, last_piece = [], {}, {}
             for i, r in enumerate(ranges):
                 parts = job.media_segments([r])
                 if i in chapters and parts:
                     seg_chapters[len(segments)] = chapters[i]
                 segments += parts
-            write_timeline(segments, dst, name, chapters=seg_chapters)
+                if parts and len(r) > 2:
+                    last_piece[r[2]] = len(segments) - 1
+            # talking heads to record: a marker where each one goes
+            notes = []
+            if iid.lower() in ("vlog", "clean"):
+                for after, pickups in project.pickups_after(job.data).items():
+                    at = (0, False) if after == "start" else (last_piece.get(after), True)
+                    if at[0] is not None:
+                        notes += [(*at, f"{p['id']} to record ({p.get('seconds', 20)} s): {p['purpose']}")
+                                  for p in pickups]
+            write_timeline(segments, dst, name, chapters=seg_chapters, notes=notes)
 
 
 def run_import(args) -> None:

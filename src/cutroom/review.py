@@ -324,6 +324,24 @@ function axisOf(t) {
   for (const [s, e] of D.keeps) { if (t >= s - 0.01 && t <= e + 0.01) return acc + Math.min(Math.max(t - s, 0), e - s); acc += e - s; }
   return null;
 }
+function spanOf(a, b) {
+  // a source range -> [x0, x1] on the vlog axis, on the select where most of it
+  // plays: the hook can replay a moment that plays again later in the vlog
+  const groups = new Map();
+  let acc = 0;
+  D.program.forEach(([s, e, id]) => {
+    const lo = Math.max(a, s), hi = Math.min(b, e);
+    if (hi > lo) {
+      const g = groups.get(id) || { overlap: 0, x0: Infinity, x1: -Infinity };
+      g.overlap += hi - lo; g.x0 = Math.min(g.x0, acc + lo - s); g.x1 = Math.max(g.x1, acc + hi - s);
+      groups.set(id, g);
+    }
+    acc += e - s;
+  });
+  let best = null;
+  groups.forEach((g) => { if (!best || g.overlap > best.overlap) best = g; });
+  return best && [best.x0, best.x1];
+}
 function programAt(x) {
   // axis position -> [range index, source time]
   let acc = 0;
@@ -444,14 +462,11 @@ function drawShorts() {
   $("lane-shorts").innerHTML = "";
   D.shorts.forEach((s) => {
     if (!FOLDER) return seg("lane-shorts", s.keeps.length ? s.keeps[0][0] : 0, s.keeps.length ? s.keeps.at(-1)[1] : 0, "short", s.id);
-    // one mark per piece, so a short made of distant moments does not look like one long stretch
-    let labelled = false;
-    s.keeps.forEach(([a, b]) => {
-      const xa = axisOf(a), xb = axisOf(b);
-      if (xa === null || xb === null) return;
-      seg("lane-shorts", xa, Math.max(xb, xa + AX / 300), "short", labelled ? "" : s.id);
-      labelled = true;
-    });
+    // one mark per piece, so a short made of distant moments does not look like one
+    // long stretch; the id goes on the widest piece, where it has room to read
+    const spans = s.keeps.map(([a, b]) => spanOf(a, b)).filter(Boolean);
+    const widest = spans.reduce((w, x) => (x[1] - x[0] > w[1] - w[0] ? x : w), spans[0]);
+    spans.forEach((x) => seg("lane-shorts", x[0], Math.max(x[1], x[0] + AX / 300), "short", x === widest ? s.id : ""));
   });
 }
 drawCuts(); drawMarks(); drawShorts();

@@ -1,26 +1,23 @@
-# shared core for silence + retake cutting. media-agnostic: works on "sessions"
-# (audio files with durations, concatenated on one source timeline) and produces
-# cut ranges in source ms. input adapters: screenstudio packages (cut_silences.py,
-# cut_retakes.py) and plain video files (cut_video.py). improvements here benefit
-# every adapter.
+# pure cut logic: no files, no subprocesses. everything works on ranges in
+# source ms on one concatenated timeline (multi-session recordings are laid end
+# to end). adapters (screenstudio.py, media.py) do the i/o; improvements here
+# benefit every input type.
 
 import difflib
-import json
 import random
 import re
 import string
-import subprocess
 import sys
-from pathlib import Path
 
 MIN_SLICE_MS = 120  # drop resulting slices/segments shorter than this
-WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
-TRANSCRIPT_CACHE_VERSION = 3
+MIN_CUT_MS = 200  # silence cuts shorter than this are not worth a cut
 FILLERS = {"um", "uh", "uhm", "erm", "hmm", "like", "so", "okay", "ok", "yeah", "well"}
 RESTART_PHRASES = re.compile(
     r"\b(scratch that|let me (redo|start over|try (that|this) again)|start(ing)? over|take two)\b",
     re.IGNORECASE,
 )
+
+Range = tuple[float, float]
 
 
 def new_id() -> str:
@@ -52,51 +49,15 @@ def resolve_pacing(args) -> None:
             setattr(args, key, value)
 
 
-# ---------- sessions ----------
-# a session is {"path": Path, "durationMs": float}. multi-session recordings
-# (screen studio pause/resume) concatenate on one timeline; an mp4 is one session.
-
-
-def detect_silences(audio: Path, noise_db: float, min_silence_s: float) -> list[tuple[float, float]]:
-    # returns (start_ms, end_ms) silence ranges within one audio file
-    cmd = [
-        "ffmpeg", "-hide_banner", "-nostats", "-i", str(audio),
-        "-af", f"silencedetect=noise={noise_db}dB:d={min_silence_s}",
-        "-f", "null", "-",
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    out = proc.stderr
-    starts = [float(m) for m in re.findall(r"silence_start: ([\d.]+)", out)]
-    ends = [float(m) for m in re.findall(r"silence_end: ([\d.]+)", out)]
-    if len(starts) == len(ends) + 1:
-        dur = re.search(r"Duration: (\d+):(\d+):([\d.]+)", out)
-        if dur:
-            h, m, s = dur.groups()
-            ends.append(int(h) * 3600 + int(m) * 60 + float(s))
-        else:
-            starts.pop()
-    return [(s * 1000, e * 1000) for s, e in zip(starts, ends)]
-
-
-def collect_silences(
-    sessions: list[dict], noise_db: float = -35.0, min_silence_s: float = 0.6
-) -> list[tuple[float, float]]:
-    # silence ranges across all sessions, offset onto the concatenated timeline
-    silences = []
-    offset_ms = 0.0
-    for session in sessions:
-        for s, e in detect_silences(session["path"], noise_db, min_silence_s):
-            silences.append((offset_ms + s, offset_ms + min(e, session["durationMs"])))
-        offset_ms += session["durationMs"]
-    return silences
+# ---------- silences ----------
 
 
 def silence_cuts(
-    silences: list[tuple[float, float]],
+    silences: list[Range],
     trail_ms: float,
     lead_ms: float,
     total_ms: float | None = None,
-) -> list[tuple[float, float]]:
+) -> list[Range]:
     # shrink each silence asymmetrically: keep `trail` after speech ends and
     # `lead` before speech resumes. silences at the very start/end of the
     # recording trim flush - there is no speech to trail from or lead into.
@@ -104,52 +65,55 @@ def silence_cuts(
     for s, e in silences:
         s2 = s if s <= 1 else s + trail_ms
         e2 = e if (total_ms is not None and e >= total_ms - 1) else e - lead_ms
-        if e2 - s2 >= 200:
+        if e2 - s2 >= MIN_CUT_MS:
             cuts.append((s2, e2))
     return cuts
 
 
-# ---------- transcription ----------
+# ---------- screen actions ----------
+# silence cutting only hears audio. a click or keystroke during a pause is
+# still content: the viewer needs to see the cursor arrive, the click land and
+# the result appear. each action protects a short window around itself from
+# silence cuts. retake and manual cuts are content decisions and ignore it.
 
 
-def transcribe_sessions(sessions: list[dict], cache: Path) -> list[dict]:
-    # word timings {"startMs", "endMs", "word"} on the concatenated timeline.
-    # cached because transcription is the slow step.
-    if cache.exists():
-        data = json.loads(cache.read_text())
-        if isinstance(data, dict) and data.get("v") == TRANSCRIPT_CACHE_VERSION:
-            print(f"using cached transcript: {cache.name}")
-            return data["words"]
-        print("cache is an older format, re-transcribing")
+def action_windows(events_ms: list[float], before_ms: float, after_ms: float,
+                   total_ms: float) -> list[Range]:
+    windows = [(max(0.0, t - before_ms), min(total_ms, t + after_ms)) for t in events_ms]
+    return merge_ranges(windows)
 
-    import mlx_whisper
 
-    words = []
-    offset_ms = 0.0
-    for session in sessions:
-        print(f"transcribing {session['path'].name} ({session['durationMs'] / 1000:.0f}s)...")
-        # condition_on_previous_text=False reduces whisper's repetition loops on silence
-        result = mlx_whisper.transcribe(
-            str(session["path"]), path_or_hf_repo=WHISPER_MODEL,
-            word_timestamps=True, condition_on_previous_text=False,
-        )
-        for seg in result["segments"]:
-            for w in seg.get("words", []):
-                text = w["word"].strip()
-                if text:
-                    words.append({
-                        "startMs": offset_ms + w["start"] * 1000,
-                        "endMs": offset_ms + min(w["end"] * 1000, session["durationMs"]),
-                        "word": text,
-                    })
-        offset_ms += session["durationMs"]
-    cache.write_text(json.dumps({"v": TRANSCRIPT_CACHE_VERSION, "words": words}, indent=1))
-    print(f"cached transcript: {cache.name}")
-    return words
+def subtract_ranges(ranges: list[Range], holes: list[Range],
+                    min_len_ms: float = 0.0) -> list[Range]:
+    # ranges minus holes; pieces shorter than min_len_ms are dropped
+    result = []
+    holes = merge_ranges(holes)
+    for s, e in merge_ranges(ranges):
+        pieces = [(s, e)]
+        for h_start, h_end in holes:
+            if h_end <= s:
+                continue
+            if h_start >= e:
+                break
+            next_pieces = []
+            for p_start, p_end in pieces:
+                if h_end <= p_start or h_start >= p_end:
+                    next_pieces.append((p_start, p_end))
+                    continue
+                if h_start > p_start:
+                    next_pieces.append((p_start, h_start))
+                if h_end < p_end:
+                    next_pieces.append((h_end, p_end))
+            pieces = next_pieces
+        result += [(a, b) for a, b in pieces if b - a >= min_len_ms]
+    return result
+
+
+# ---------- transcript ----------
 
 
 def drop_hallucinated_words(
-    words: list[dict], silences: list[tuple[float, float]]
+    words: list[dict], silences: list[Range]
 ) -> tuple[list[dict], list[dict]]:
     # whisper invents words during long silences (repetition loops, "LA LA LA"),
     # often with dense fake timings that bridge real takes into one run-on.
@@ -278,7 +242,7 @@ def review_cuts(cuts: list[dict], auto_yes: bool) -> list[dict]:
 # ---------- range math ----------
 
 
-def merge_ranges(ranges: list[tuple[float, float]]) -> list[tuple[float, float]]:
+def merge_ranges(ranges: list[Range]) -> list[Range]:
     merged: list[list[float]] = []
     for s, e in sorted(ranges):
         if merged and s <= merged[-1][1]:
@@ -288,7 +252,7 @@ def merge_ranges(ranges: list[tuple[float, float]]) -> list[tuple[float, float]]
     return [(s, e) for s, e in merged]
 
 
-def invert_cuts(cuts: list[tuple[float, float]], total_ms: float) -> list[tuple[float, float]]:
+def invert_cuts(cuts: list[Range], total_ms: float) -> list[Range]:
     # keep-ranges = timeline minus cuts (for renderers that assemble kept segments)
     keeps = []
     pos = 0.0
@@ -301,13 +265,18 @@ def invert_cuts(cuts: list[tuple[float, float]], total_ms: float) -> list[tuple[
     return keeps
 
 
+def _overlaps_any(start: float, end: float, ranges: list[Range]) -> bool:
+    return any(e > start and s < end for s, e in ranges)
+
+
 def cleanup_cuts(
-    cuts: list[tuple[float, float]],
+    cuts: list[Range],
     total_ms: float,
     words: list[dict] | None = None,
     min_keep_ms: float = 1500.0,
     min_keep_wordless_ms: float = 400.0,
-) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
+    protected: list[Range] | None = None,
+) -> tuple[list[Range], list[Range]]:
     # final cleanup pass over an approved cut list: absorb tiny kept fragments
     # between cuts that carry no speech (breaths, mouth clicks, chair noise).
     # these survive silence detection because they have energy, but they chop
@@ -316,16 +285,18 @@ def cleanup_cuts(
     # is absorbed; longer wordless keeps survive (deliberate on-screen action).
     # without a transcript: only keeps shorter than min_keep_wordless_ms are
     # absorbed, since speech can't be ruled out.
+    # a keep that overlaps a protected range (a click or keystroke) is never absorbed.
     # returns (cleaned cuts, absorbed fragments for reporting).
     merged = merge_ranges(cuts)
+    word_ranges = [(w["startMs"], w["endMs"]) for w in words] if words is not None else None
     absorbed = []
     for k_start, k_end in invert_cuts(merged, total_ms):
-        if words is None:
+        if protected and _overlaps_any(k_start, k_end, protected):
+            continue
+        if word_ranges is None:
             wordless, threshold = True, min_keep_wordless_ms
         else:
-            wordless = not any(
-                w["endMs"] > k_start and w["startMs"] < k_end for w in words
-            )
+            wordless = not _overlaps_any(k_start, k_end, word_ranges)
             threshold = min_keep_ms
         if wordless and k_end - k_start < threshold:
             absorbed.append((k_start, k_end))
@@ -334,7 +305,7 @@ def cleanup_cuts(
     return merge_ranges(merged + absorbed), absorbed
 
 
-def subtract_cuts(slices: list[dict], cuts: list[tuple[float, float]]) -> list[dict]:
+def subtract_cuts(slices: list[dict], cuts: list[Range]) -> list[dict]:
     # subtract cut ranges (source ms) from screenstudio-style slices,
     # preserving all other fields
     result = []
@@ -361,12 +332,3 @@ def subtract_cuts(slices: list[dict], cuts: list[tuple[float, float]]) -> list[d
                 new_slice["id"] = new_id()
             result.append(new_slice)
     return result
-
-
-def versioned_output(base: Path, src: Path | None = None) -> Path:
-    # never delete or overwrite: version the output name if it already exists
-    dst, n = base, 2
-    while dst.exists() or (src is not None and dst.resolve() == src.resolve()):
-        dst = base.with_name(f"{base.stem}-v{n}{base.suffix}")
-        n += 1
-    return dst

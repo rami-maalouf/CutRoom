@@ -3,6 +3,7 @@
 #   cutroom project <recording.screenstudio>   cut a screen studio project (no re-encode)
 #   cutroom video <file.mp4>                   cut any video file (mp4 render or fcpxml)
 #   cutroom digest <folder>                    transcribe a folder of clips, write agent digest shards
+#   cutroom candidates <folder>                check agents' candidates, turn them into selects
 #   cutroom review <source>                    review page: plays the cut without rendering
 #   cutroom export <source> vlog|S1|V1 ...     export the vlog, shorts or selects from the clean cut
 #   cutroom import <video> <timeline.fcpxml>   bring edits made in final cut back
@@ -15,6 +16,7 @@
 # anything: <name>-clean.* or <name>-S1.* next to the source, versioned.
 
 import argparse
+import json
 import sys
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
@@ -290,6 +292,55 @@ def run_digest(args) -> None:
         print(f"  {path}")
 
 
+def run_candidates(args) -> None:
+    # step 4 helper: check every agent's candidates, show what each score
+    # threshold would make, and optionally turn the chosen ones into selects
+    src = args.folder.resolve()
+    sessions = folder.sessions(src)
+    durations = {s["rel"]: s["durationMs"] / 1000 for s in sessions}
+    order = {s["rel"]: i for i, s in enumerate(sessions)}
+    files = sorted((folder.workdir(src) / "candidates").glob("*.json"))
+    if not files:
+        sys.exit(f"no candidate files in {folder.workdir(src) / 'candidates'}")
+    found, problems = [], []
+    for path in files:
+        for n, c in enumerate(json.loads(path.read_text(encoding="utf-8"))):
+            where = f"{path.name}[{n}]"
+            if c.get("clip") not in durations:
+                problems.append(f"{where}: unknown clip {c.get('clip')!r}")
+            elif not 0 <= c.get("start", -1) < c.get("end", -1) <= durations[c["clip"]] + 0.05:
+                problems.append(f"{where}: range {c.get('start')}-{c.get('end')} is outside {c['clip']}")
+            else:
+                found.append({**c, "end": min(c["end"], durations[c["clip"]]), "file": path.name})
+    for p in problems:
+        print(f"  skipped {p}")
+    found.sort(key=lambda c: (order[c["clip"]], c["start"]))
+    print(f"{len(found)} candidates from {len(files)} files ({len(problems)} skipped)\n")
+    for score in range(10, 0, -1):
+        chosen = [c for c in found if c.get("score", 0) >= score]
+        if chosen:
+            print(f"  score >= {score:2d}: {len(chosen):3d} moments, {sum(c['end'] - c['start'] for c in chosen) / 60:5.1f} min raw")
+    if not args.write_selects:
+        print("\nadd --write-selects --min-score N to turn them into selects (replaces the current selects)")
+        return
+    chosen = [c for c in found if c.get("score", 0) >= args.min_score]
+    merged: list[dict] = []
+    for c in chosen:  # overlapping or touching moments in one clip become one select
+        last = merged[-1] if merged else None
+        if last and last["clip"] == c["clip"] and c["start"] <= last["end"] + 0.5:
+            last["end"] = max(last["end"], c["end"])
+            last["title"] = f"{last['title']} / {c.get('title', '')}".strip(" /")
+            continue
+        merged.append({"clip": c["clip"], "start": round(c["start"], 2), "end": round(c["end"], 2),
+                       "chapter": c.get("chapter", ""), "title": c.get("title", ""),
+                       "why": c.get("why", ""), "score": c.get("score")})
+    data = project.load(src, set(durations))
+    data["selects"] = [{"id": f"V{i}", **m} for i, m in enumerate(merged, 1)]
+    path = project.save(src, data)
+    print(f"\nwrote {len(merged)} selects (score >= {args.min_score}) to {path}")
+    print(f"next: cutroom review {json.dumps(str(src))} --open")
+
+
 def run_export(args) -> None:
     args.yes = True
     job = make_plan(args.source, args)
@@ -406,6 +457,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--sheets", action="store_true", help="contact sheets for mostly visual clips")
     p.add_argument("--backend", choices=["mlx", "faster-whisper"], default=None)
     p.set_defaults(run=run_digest)
+
+    p = sub.add_parser("candidates", help="folder: check agent candidates and turn them into selects")
+    p.add_argument("folder", type=Path)
+    p.add_argument("--min-score", type=int, default=7, help="keep candidates scored at least this")
+    p.add_argument("--write-selects", action="store_true", help="replace the selects with the kept candidates")
+    p.set_defaults(run=run_candidates)
 
     p = sub.add_parser("export", help="export the vlog (a folder's selects), shorts (S1 ...) or selects (V1 ...)")
     p.add_argument("source", type=Path)

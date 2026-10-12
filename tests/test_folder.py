@@ -131,3 +131,25 @@ def test_clip_relative_keep_survives_new_files(shoot):
     assert len(after["selects"][0]["keeps"]) == len(before)
     assert all(abs((a[0] - b[0]) - 6.0) < 0.01 and abs((a[1] - b[1]) - 6.0) < 0.01
                for a, b in zip(after["selects"][0]["keeps"], before))
+
+
+def test_candidates_are_checked_merged_and_written_as_selects(shoot, capsys):
+    cand = shoot / "cutroom" / "candidates"
+    cand.mkdir(parents=True)
+    (cand / "shard-1.json").write_text(json.dumps([
+        {"clip": "cam/a.mp4", "start": 0.0, "end": 2.0, "score": 8, "chapter": "Noon", "title": "hello"},
+        {"clip": "cam/a.mp4", "start": 1.5, "end": 5.9, "score": 7, "chapter": "Noon", "title": "welcome"},
+        {"clip": "phone/c.mov", "start": 0.0, "end": 1.9, "score": 9, "chapter": "Morning", "title": "open"},
+        {"clip": "phone/c.mov", "start": 4.0, "end": 5.9, "score": 3, "chapter": "Morning", "title": "weak"},
+        {"clip": "cam/nope.mp4", "start": 0, "end": 1, "score": 9},
+        {"clip": "cam/a.mp4", "start": 5, "end": 60, "score": 9},
+    ]))
+    main(["candidates", str(shoot)])
+    out = capsys.readouterr().out
+    assert "unknown clip 'cam/nope.mp4'" in out and "outside cam/a.mp4" in out
+    main(["candidates", str(shoot), "--write-selects", "--min-score", "7"])
+    selects = json.loads(project.project_path(shoot).read_text())["selects"]
+    # capture order (c before a), the two overlapping noon moments merged, the weak one dropped
+    assert [(s["id"], s["clip"], s["start"], s["end"]) for s in selects] == [
+        ("V1", "phone/c.mov", 0.0, 1.9), ("V2", "cam/a.mp4", 0.0, 5.9)]
+    assert selects[1]["title"] == "hello / welcome"

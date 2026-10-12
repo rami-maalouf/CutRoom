@@ -2,8 +2,9 @@
 #
 #   cutroom project <recording.screenstudio>   cut a screen studio project (no re-encode)
 #   cutroom video <file.mp4>                   cut any video file (mp4 render or fcpxml)
+#   cutroom digest <folder>                    transcribe a folder of clips, write agent digest shards
 #   cutroom review <source>                    review page: plays the cut without rendering
-#   cutroom export <source> S1 [S2 ...]        export short candidates from the clean cut
+#   cutroom export <source> vlog|S1|V1 ...     export the vlog, shorts or selects from the clean cut
 #   cutroom import <video> <timeline.fcpxml>   bring edits made in final cut back
 #   cutroom transcribe <media>...              word-level transcript cache only
 #
@@ -16,11 +17,13 @@
 import argparse
 import sys
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import __version__, project
-from .core import invert_cuts, merge_ranges, resolve_pacing
-from .fcpxml import read_keeps, write_fcpxml
+from . import __version__, folder, project
+from .core import Range, clean_segments, invert_cuts, merge_ranges, resolve_pacing, snap_range
+from .fcpxml import read_keeps, write_fcpxml, write_timeline
 from .media import probe_video, render, require_ffmpeg, versioned_output
 from .pipeline import Plan, plan_cuts, write_report
 from .review import write_review
@@ -69,6 +72,62 @@ def is_screenstudio(path: Path) -> bool:
     return path.suffix == ".screenstudio" or (path / "project.json").exists()
 
 
+@dataclass
+class Job:
+    kind: str                        # "video", "screenstudio" or "folder"
+    src: Path
+    sessions: list[dict]
+    plan: Plan
+    data: dict                       # the project file
+    offsets: dict[str, float] | None  # folder: clip -> start on the timeline (ms)
+    program: list[tuple] = field(default_factory=list)   # (start_ms, end_ms, select id)
+    chapters: dict[int, str] = field(default_factory=dict)
+
+    @property
+    def exports(self) -> Path:
+        # where exports go: next to a single source, inside cutroom/ for a folder
+        return folder.workdir(self.src) / "exports" if self.kind == "folder" else self.src.parent
+
+    @property
+    def stem(self) -> str:
+        return self.src.name if self.kind == "folder" else self.src.stem
+
+    def clean(self, ranges: list[Range]) -> list[Range]:
+        # snap chosen ranges to words, never past the edges of their own clip,
+        # then keep only their clean parts
+        if self.plan.words:
+            bounds, acc = [], 0.0
+            for sess in self.sessions:
+                bounds.append((acc, acc + sess["durationMs"]))
+                acc += sess["durationMs"]
+            snapped = []
+            for s, e in ranges:
+                b0, b1 = next(((a, b) for a, b in bounds if a <= s < b), (0.0, acc))
+                a, b = snap_range(self.plan.words, s, e)
+                snapped.append((max(a, b0), min(b, b1)))
+            ranges = snapped
+        return clean_segments(self.plan.keeps, ranges)
+
+    def item_segments(self, item: dict) -> list[Range]:
+        return self.clean(project.segments(item, self.offsets))
+
+    def media_segments(self, ranges: list[tuple]) -> list[tuple]:
+        # timeline ranges -> (file, start_ms, end_ms, label), split at clip joins
+        out, acc = [], 0.0
+        bounds = []
+        for sess in self.sessions:
+            bounds.append((acc, acc + sess["durationMs"], sess["path"]))
+            acc += sess["durationMs"]
+        for r in ranges:
+            s, e = r[0], r[1]
+            for b0, b1, path in bounds:
+                a, b = max(s, b0), min(e, b1)
+                if b - a > 1:
+                    label = f"{r[2]} " if len(r) > 2 and r[2] else ""
+                    out.append((path, a - b0, b - b0, f"{label}{path.stem} {(a - b0) / 1000:.1f}s"))
+        return out
+
+
 def open_source(path: Path, args) -> tuple[str, Path, list[dict], list[float]]:
     # (kind, resolved source, sessions, on-screen action times)
     src = path.resolve()
@@ -79,8 +138,15 @@ def open_source(path: Path, args) -> tuple[str, Path, list[dict], list[float]]:
         print(f"mic sessions: {len(sessions)}, total {total_s:.1f}s")
         actions = [] if args.no_protect_actions else action_times(src, sessions)
         return "screenstudio", src, sessions, actions
+    if src.is_dir():
+        sessions = folder.sessions(src)
+        if not sessions:
+            sys.exit(f"no video files in {src}")
+        total_s = sum(s["durationMs"] for s in sessions) / 1000
+        print(f"folder: {len(sessions)} clips, {total_s / 3600:.2f} h")
+        return "folder", src, sessions, []
     if not src.is_file():
-        sys.exit(f"not a video file or .screenstudio project: {src}")
+        sys.exit(f"not a video file, folder or .screenstudio project: {src}")
     duration_ms, has_audio = probe_video(src)
     if not has_audio:
         sys.exit("video has no audio track - nothing to analyze")
@@ -88,14 +154,17 @@ def open_source(path: Path, args) -> tuple[str, Path, list[dict], list[float]]:
     return "video", src, [{"path": src, "durationMs": duration_ms}], []
 
 
-def make_plan(path: Path, args) -> tuple[str, Path, list[dict], Plan, dict]:
+def make_plan(path: Path, args) -> Job:
     kind, src, sessions, actions = open_source(path, args)
-    data = project.load(src)
-    edits = {"cuts": project.edit_ranges(data, "cuts"), "keeps": project.edit_ranges(data, "keeps")}
-    if edits["cuts"] or edits["keeps"] or data["shorts"]:
+    offsets = folder.offsets(sessions) if kind == "folder" else None
+    data = project.load(src, set(offsets) if offsets is not None else None)
+    edits = {"cuts": project.edit_ranges(data, "cuts", offsets),
+             "keeps": project.edit_ranges(data, "keeps", offsets)}
+    if edits["cuts"] or edits["keeps"] or data["selects"] or data["shorts"]:
         print(f"project file: {project.project_path(src).name} ({len(edits['cuts'])} cuts, "
-              f"{len(edits['keeps'])} keeps, {len(data['shorts'])} shorts)")
-    plan = plan_cuts(sessions, args, src.with_suffix(".transcript.json"), actions, edits)
+              f"{len(edits['keeps'])} keeps, {len(data['selects'])} selects, {len(data['shorts'])} shorts)")
+    cache = None if kind == "folder" else src.with_suffix(".transcript.json")
+    plan = plan_cuts(sessions, args, cache, actions, edits)
     if kind == "screenstudio":
         # respect the edit already made in screen studio: what it hides counts as cut
         shown = edited_ranges(src)
@@ -106,38 +175,62 @@ def make_plan(path: Path, args) -> tuple[str, Path, list[dict], Plan, dict]:
                               if any(e > d["startMs"] and s < d["endMs"] for s, e in shown)]
             print(f"screen studio edit: {sum(e - s for s, e in shown) / 1000:.1f}s of "
                   f"{plan.total_ms / 1000:.1f}s shown before cutroom")
+    job = Job(kind, src, sessions, plan, data, offsets)
+
+    # the program: the selects in their order when there are any, else the whole clean cut
+    selected = project.selects(data, offsets)
+    if selected:
+        last = None
+        for item in selected:
+            parts = job.clean([(item["startMs"], item["endMs"])])
+            if parts and item.get("chapter") and item["chapter"] != last:
+                job.chapters[len(job.program)] = item["chapter"]
+                last = item["chapter"]
+            job.program += [(a, b, item["id"]) for a, b in parts]
+        within = [(s, e) for s, e, _ in job.program]
+        plan.decisions = [d for d in plan.decisions
+                          if any(e > d["startMs"] and s < d["endMs"] for s, e in within)]
+    else:
+        job.program = [(s, e, None) for s, e in plan.keeps]
     if getattr(args, "report", None):
         write_report(plan, args.report, src)
-    return kind, src, sessions, plan, data
+    return job
 
 
-def summarize(plan: Plan) -> None:
+def summarize(job: Job) -> None:
+    plan = job.plan
+    if job.data["selects"]:
+        kept = sum(e - s for s, e, _ in job.program) / 1000
+        print(f"\nprogram: {len(job.data['selects'])} selects, {len(job.program)} segments, "
+              f"{kept / 60:.1f} min from {plan.total_ms / 60000:.1f} min of footage")
+        return
     print(f"\nfinal: {len(plan.keeps)} kept segments, {plan.total_ms / 1000:.1f}s -> "
           f"{plan.kept_ms / 1000:.1f}s (saved {(plan.total_ms - plan.kept_ms) / 1000:.1f}s)")
 
 
 def run_project(args) -> None:
-    kind, src, _sessions, plan, _data = make_plan(args.project, args)
-    if kind != "screenstudio":
-        sys.exit(f"{src.name} is not a .screenstudio project - use: cutroom video")
-    if not plan.final_cuts:
+    job = make_plan(args.project, args)
+    if job.kind != "screenstudio":
+        sys.exit(f"{job.src.name} is not a .screenstudio project - use: cutroom video")
+    if not job.plan.final_cuts:
         print("no cuts approved - nothing to do")
         return
-    summarize(plan)
+    summarize(job)
     if args.dry_run:
         print("dry run - nothing written")
         return
-    write_cut_package(src, plan.final_cuts, args.output)
+    write_cut_package(job.src, job.plan.final_cuts, args.output)
 
 
 def run_video(args) -> None:
-    kind, src, _sessions, plan, _data = make_plan(args.video, args)
-    if kind != "video":
-        sys.exit(f"{src.name} is a screen studio project - use: cutroom project")
+    job = make_plan(args.video, args)
+    src, plan = job.src, job.plan
+    if job.kind != "video":
+        sys.exit(f"{src.name} is not a single video file - use: cutroom project, or cutroom export <folder> vlog")
     if not plan.final_cuts:
         print("no cuts approved - nothing to do")
         return
-    summarize(plan)
+    summarize(job)
     if args.dry_run:
         print("dry run - nothing written")
         return
@@ -154,37 +247,81 @@ def run_video(args) -> None:
 
 def run_review(args) -> None:
     args.yes = True  # reviewing never writes media, so nothing needs approving
-    kind, src, sessions, plan, data = make_plan(args.source, args)
-    summarize(plan)
-    dst = args.output or src.with_suffix(".review.html")
-    write_review(plan, src, sessions, kind, data["shorts"], dst)
+    job = make_plan(args.source, args)
+    summarize(job)
+    if job.kind == "folder":
+        dst = args.output or folder.workdir(job.src) / "review.html"
+    else:
+        dst = args.output or job.src.with_suffix(".review.html")
+    write_review(job, dst)
     if args.open:
         webbrowser.open(dst.resolve().as_uri())
 
 
+def run_digest(args) -> None:
+    src = args.folder.resolve()
+    if not src.is_dir() or is_screenstudio(src):
+        sys.exit(f"digest works on a folder of clips: {src}")
+    sessions = folder.sessions(src)
+    if not sessions:
+        sys.exit(f"no video files in {src}")
+    print(f"folder: {len(sessions)} clips, {sum(s['durationMs'] for s in sessions) / 3600000:.2f} h")
+    words = transcribe_sessions(sessions, None, args.backend)
+    sheets = {}
+    if args.sheets:
+        offsets = folder.offsets(sessions)
+        speechless = [s for s in sessions
+                      if not any(offsets[s["rel"]] <= w["startMs"] < offsets[s["rel"]] + s["durationMs"]
+                                 for w in words)]
+        out = folder.workdir(src) / "sheets"
+        with ThreadPoolExecutor(4) as pool:
+            done = pool.map(lambda s: folder.contact_sheet(
+                s["path"], out / (s["rel"].replace("/", "__") + ".jpg")), speechless)
+            sheets = {s["rel"]: p.relative_to(folder.workdir(src)).as_posix() for s, p in zip(speechless, done)}
+        print(f"contact sheets: {len(sheets)} clips without speech")
+    shards = folder.write_digest(sessions, words, folder.workdir(src) / "digest", args.shards, sheets)
+    print(f"digest: {folder.workdir(src) / 'digest' / 'all.md'} and {len(shards)} shards")
+    for path in shards:
+        print(f"  {path}")
+
+
 def run_export(args) -> None:
     args.yes = True
-    kind, src, _sessions, plan, data = make_plan(args.source, args)
-    for sid in args.ids:
-        short = project.find_short(data, sid)
-        s0, s1 = project.short_range(short)
-        keeps = [(max(s, s0), min(e, s1)) for s, e in plan.keeps if min(e, s1) - max(s, s0) > 50]
-        if not keeps:
-            print(f"{short['id']}: nothing of the clean cut falls inside {s0 / 1000:.1f}-{s1 / 1000:.1f}s")
+    job = make_plan(args.source, args)
+    for iid in args.ids:
+        if iid.lower() in ("vlog", "clean"):
+            ranges, chapters, name, tag = job.program, job.chapters, f"{job.stem}", "-vlog"
+            if not job.data["selects"]:
+                tag = "-clean"
+        else:
+            item = project.find(job.data, iid)
+            ranges, chapters = job.item_segments(item), {}
+            name, tag = f"{job.stem} {item['id']} {item.get('title', '')}".strip(), f"-{item['id']}"
+        if not ranges:
+            print(f"{iid}: nothing of the clean cut falls inside it")
             continue
-        clean_s = sum(e - s for s, e in keeps) / 1000
-        print(f"\n{short['id']} {short.get('title', '')}: {len(keeps)} segments, {clean_s:.1f}s")
-        tag = f"-{short['id']}"
-        if kind == "screenstudio":
-            write_cut_package(src, invert_cuts(keeps, plan.total_ms), None, tag)
+        clean_s = sum(r[1] - r[0] for r in ranges) / 1000
+        print(f"\n{name}: {len(ranges)} segments, {clean_s / 60:.1f} min")
+        job.exports.mkdir(parents=True, exist_ok=True)
+        if job.kind == "screenstudio":
+            keeps = merge_ranges([(r[0], r[1]) for r in ranges])
+            write_cut_package(job.src, invert_cuts(keeps, job.plan.total_ms), None, tag)
         elif args.format == "mp4":
-            dst = versioned_output(src.with_name(f"{src.stem}{tag}.mp4"), src)
-            render(src, keeps, dst)
+            if job.kind == "folder":
+                sys.exit("mp4 export of a folder is not supported yet - export fcpxml")
+            dst = versioned_output(job.exports / f"{job.stem}{tag}.mp4", job.src)
+            render(job.src, [(r[0], r[1]) for r in ranges], dst)
             print(f"wrote: {dst}")
         else:
-            dst = versioned_output(src.with_name(f"{src.stem}{tag}.fcpxml"), src)
-            write_fcpxml(src, keeps, dst, plan.total_ms,
-                         project_name=f"{src.stem} {short['id']} {short.get('title', '')}".strip())
+            dst = versioned_output(job.exports / f"{job.stem}{tag}.fcpxml", job.src)
+            # a program range can cross a clip join; chapters go on its first piece
+            segments, seg_chapters = [], {}
+            for i, r in enumerate(ranges):
+                parts = job.media_segments([r])
+                if i in chapters and parts:
+                    seg_chapters[len(segments)] = chapters[i]
+                segments += parts
+            write_timeline(segments, dst, name, chapters=seg_chapters)
 
 
 def run_import(args) -> None:
@@ -250,17 +387,24 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--output", type=Path, default=None, help="output path")
     p.set_defaults(run=run_video)
 
-    p = sub.add_parser("review", help="write a review page that plays the cut without rendering")
+    p = sub.add_parser("review", help="review page: plays the cut (or a folder's vlog) without rendering")
     p.add_argument("source", type=Path)
     add_cut_options(p)
     p.add_argument("--report", type=Path, default=None, help="also write the json report")
-    p.add_argument("--output", type=Path, default=None, help="page path (default <name>.review.html)")
+    p.add_argument("--output", type=Path, default=None, help="page path (default <name>.review.html, or <folder>/cutroom/review.html)")
     p.add_argument("--open", action="store_true", help="open the page in the default browser")
     p.set_defaults(run=run_review)
 
-    p = sub.add_parser("export", help="export short candidates (S1, S2, ...) from the clean cut")
+    p = sub.add_parser("digest", help="folder: transcribe every clip and write agent-readable digest shards")
+    p.add_argument("folder", type=Path)
+    p.add_argument("--shards", type=int, default=5, help="split the digest for this many parallel agents")
+    p.add_argument("--sheets", action="store_true", help="contact sheets for clips without speech")
+    p.add_argument("--backend", choices=["mlx", "faster-whisper"], default=None)
+    p.set_defaults(run=run_digest)
+
+    p = sub.add_parser("export", help="export the vlog (a folder's selects), shorts (S1 ...) or selects (V1 ...)")
     p.add_argument("source", type=Path)
-    p.add_argument("ids", nargs="+", metavar="ID")
+    p.add_argument("ids", nargs="+", metavar="ID", help="vlog (or clean), S1, V3, ...")
     add_cut_options(p)
     p.add_argument("--format", choices=["fcpxml", "mp4"], default="fcpxml",
                    help="video sources: fcpxml (no re-encode) or a rendered mp4; "

@@ -96,31 +96,50 @@ def load_cache(cache: Path) -> list[dict] | None:
     return None
 
 
-def transcribe_sessions(sessions: list[dict], cache: Path, backend: str | None = None) -> list[dict]:
-    # word timings {"startMs", "endMs", "word"} on the concatenated timeline
+def _transcribe_into(cache: Path, sessions: list[dict], backend: str | None) -> list[dict]:
+    # one cache file for these sessions laid end to end
     cached = load_cache(cache)
     if cached is not None:
-        print(f"using cached transcript: {cache.name}")
         return cached
     if cache.exists():
-        print("cache is an older format, re-transcribing")
-
+        print(f"{cache.name} is an older format, re-transcribing")
     backend = pick_backend(backend)
     words = []
     offset_ms = 0.0
     for session in sessions:
-        print(f"transcribing {session['path'].name} ({session['durationMs'] / 1000:.0f}s, {backend})...")
-        for start, end, text in transcribe_file(session["path"], backend):
-            words.append({
-                "startMs": offset_ms + start * 1000,
-                "endMs": offset_ms + min(end * 1000, session["durationMs"]),
-                "word": text,
-            })
+        if session.get("hasAudio", True):
+            print(f"transcribing {session['path'].name} ({session['durationMs'] / 1000:.0f}s, {backend})...")
+            for start, end, text in transcribe_file(session["path"], backend):
+                words.append({
+                    "startMs": offset_ms + start * 1000,
+                    "endMs": offset_ms + min(end * 1000, session["durationMs"]),
+                    "word": text,
+                })
         offset_ms += session["durationMs"]
     model = MLX_MODEL if backend == "mlx" else FASTER_WHISPER_MODEL
+    cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(
         json.dumps({"v": CACHE_VERSION, "backend": backend, "model": model, "words": words}, indent=1),
         encoding="utf-8",
     )
-    print(f"cached transcript: {cache.name}")
+    return words
+
+
+def transcribe_sessions(sessions: list[dict], cache: Path | None, backend: str | None = None) -> list[dict]:
+    # word timings {"startMs", "endMs", "word"} on the concatenated timeline.
+    # with a cache path, all sessions share one cache (a screen studio recording);
+    # with None, each session carries its own "cache" (a folder of clips), so
+    # adding a clip later only transcribes that clip.
+    if cache is not None:
+        hit = load_cache(cache) is not None
+        words = _transcribe_into(cache, sessions, backend)
+        print(f"{'using cached' if hit else 'cached'} transcript: {cache.name}")
+        return words
+    words, offset_ms, fresh = [], 0.0, 0
+    for session in sessions:
+        fresh += load_cache(session["cache"]) is None and session.get("hasAudio", True)
+        for w in _transcribe_into(session["cache"], [session], backend):
+            words.append({**w, "startMs": w["startMs"] + offset_ms, "endMs": w["endMs"] + offset_ms})
+        offset_ms += session["durationMs"]
+    print(f"transcripts: {len(sessions)} clips ({fresh} transcribed now, the rest cached)")
     return words

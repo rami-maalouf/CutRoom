@@ -332,3 +332,35 @@ def subtract_cuts(slices: list[dict], cuts: list[Range]) -> list[dict]:
                 new_slice["id"] = new_id()
             result.append(new_slice)
     return result
+
+
+# ---------- selects ----------
+
+
+def snap_range(words: list[dict], start_ms: float, end_ms: float,
+               pad_before_ms: float = 120.0, pad_after_ms: float = 250.0) -> Range:
+    # widen a chosen range to whole words plus a little air, without reaching
+    # into the neighboring words: agents pick moments from sentence times, and
+    # a cut that lands inside a word sounds broken
+    for w in words:
+        if w["startMs"] < start_ms < w["endMs"]:
+            start_ms = w["startMs"]
+        if w["startMs"] < end_ms < w["endMs"]:
+            end_ms = w["endMs"]
+    before = [w["endMs"] for w in words if w["endMs"] <= start_ms]
+    after = [w["startMs"] for w in words if w["startMs"] >= end_ms]
+    start = max(start_ms - pad_before_ms, max(before) if before else 0.0)
+    end = min(end_ms + pad_after_ms, min(after) if after else end_ms + pad_after_ms)
+    return min(start, start_ms), max(end, end_ms)
+
+
+def clean_segments(keeps: list[Range], ranges: list[Range], min_ms: float = 50.0) -> list[Range]:
+    # the clean parts of each range, in the ranges' own order (a select list or
+    # a short may reorder the source)
+    out = []
+    for s0, e0 in ranges:
+        for s, e in keeps:
+            a, b = max(s, s0), min(e, e0)
+            if b - a > min_ms:
+                out.append((a, b))
+    return out

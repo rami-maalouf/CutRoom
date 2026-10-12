@@ -47,7 +47,9 @@ def collect_silences(sessions: list[dict], noise_db: float = -35.0,
     workers = max(1, min(len(sessions), os.cpu_count() or 1))
     with ThreadPoolExecutor(workers) as pool:
         per_session = list(pool.map(
-            lambda s: detect_silences(s["path"], noise_db, min_silence_s, s["durationMs"]),
+            # a clip without audio (b-roll) is silent from start to end
+            lambda s: detect_silences(s["path"], noise_db, min_silence_s, s["durationMs"])
+            if s.get("hasAudio", True) else [(0.0, s["durationMs"])],
             sessions,
         ))
     silences = []

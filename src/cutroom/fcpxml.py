@@ -53,7 +53,7 @@ def probe_media(video: Path) -> dict:
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries",
          "stream=codec_type,r_frame_rate,width,height,sample_rate,channels,color_transfer"
-         ":stream_tags=timecode:stream_side_data=rotation:format_tags=timecode",
+         ":stream_tags=timecode:stream_side_data=rotation:format_tags=timecode:format=duration",
          "-of", "json", str(video)],
         capture_output=True, text=True, check=True,
     ).stdout
@@ -79,7 +79,11 @@ def probe_media(video: Path) -> dict:
             info.update(has_audio=True, audio_rate=int(s.get("sample_rate", 48000)),
                         audio_channels=int(s.get("channels", 2)))
     info["timecode"] = next((tc for tc in timecodes if tc), None)
+    info["duration"] = float(data.get("format", {}).get("duration") or 0)
     return info
+
+
+Segment = tuple  # (media path, start_ms, end_ms) or (media path, start_ms, end_ms, label)
 
 
 def write_fcpxml(
@@ -90,72 +94,118 @@ def write_fcpxml(
     retake_markers: list[tuple[float, str]] | None = None,
     project_name: str | None = None,
 ) -> None:
-    # fcp requires frame-aligned rational times ("N/60s"); snap everything to
-    # the source frame rate so import produces no boundary warnings. media with
-    # a timecode track starts at that timecode in fcp, so the asset and every
-    # clip start are offset by it.
-    m = probe_media(video)
-    fps = m["fps"]
-    num, den = fps.numerator, fps.denominator
+    # one source file: its kept ranges in order, retake markers on the clips that follow them
+    write_timeline([(video, s, e) for s, e in keeps], dst,
+                   project_name or f"{video.stem} (CutRoom)",
+                   markers=[(video, ms, text) for ms, text in retake_markers or []])
 
-    rate = FCP_RATES.get((num, den))
-    size = FCP_SIZES.get((m["width"], m["height"]))
-    frame_duration = rate[1] if rate else f"{den}/{num}s"
-    format_name = f' name="FFVideoFormat{size}p{rate[0]}"' if rate and size else ""
-    tc_frames, tc_format = timecode_frames(m["timecode"], fps) if m["timecode"] else (0, "NDF")
 
-    def frames(ms: float) -> int:
-        return round(ms / 1000 * num / den)
+def write_timeline(
+    segments: list[Segment],
+    dst: Path,
+    project_name: str,
+    markers: list[tuple[Path, float, str]] = (),
+    chapters: dict[int, str] | None = None,
+) -> None:
+    # a final cut pro timeline (fcpxml 1.10) of source ranges from any number of
+    # files, referencing the original media - no re-encoding. fcp needs
+    # frame-aligned rational times: clip starts sit on each file's own frame
+    # grid (offset by the file's timecode, which fcp reads), offsets and
+    # durations on the sequence grid. chapters: segment index -> title.
+    chapters = chapters or {}
+    media = {}
+    for seg in segments:
+        if seg[0] not in media:
+            media[seg[0]] = probe_media(seg[0])
 
-    def t(fr: int) -> str:
-        return "0s" if fr == 0 else f"{fr * den}/{num}s"
+    # the sequence takes the format that carries most of the program
+    weight: dict[tuple, float] = {}
+    for seg in segments:
+        m = media[seg[0]]
+        key = (m["width"], m["height"], m["fps"], m["color"])
+        weight[key] = weight.get(key, 0) + seg[2] - seg[1]
+    seq_w, seq_h, seq_fps, seq_color = max(weight, key=weight.get)
 
-    clip_tc = ' tcFormat="DF"' if tc_format == "DF" else ""
-    pending = sorted(retake_markers or [])
-    clips = []
-    offset_fr = 0
-    for k_start, k_end in keeps:
-        start_fr, end_fr = frames(k_start), frames(k_end)
-        dur_fr = end_fr - start_fr
-        if dur_fr <= 0:
+    formats: dict[tuple, str] = {}
+    resources, assets = [], {}
+
+    def format_id(w: int, h: int, fps: Fraction, color: str) -> str:
+        key = (w, h, fps, color)
+        if key not in formats:
+            fid = f"r{len(formats) + 1}"
+            rate = FCP_RATES.get((fps.numerator, fps.denominator))
+            size = FCP_SIZES.get((w, h))
+            name = f' name="FFVideoFormat{size}p{rate[0]}"' if rate and size else ""
+            fd = rate[1] if rate else f"{fps.denominator}/{fps.numerator}s"
+            resources.append(f'    <format id="{fid}"{name} frameDuration="{fd}" width="{w}" '
+                             f'height="{h}" colorSpace="{color}"/>')
+            formats[key] = fid
+        return formats[key]
+
+    seq_format = format_id(seq_w, seq_h, seq_fps, seq_color)
+
+    def at(fr: int, fps: Fraction) -> str:
+        return "0s" if fr == 0 else f"{fr * fps.denominator}/{fps.numerator}s"
+
+    for path, m in media.items():
+        fps = m["fps"]
+        tc_frames, tc_format = timecode_frames(m["timecode"], fps) if m["timecode"] else (0, "NDF")
+        aid = f"a{len(assets) + 1}"
+        assets[path] = {"id": aid, "fps": fps, "tc": tc_frames, "tcFormat": tc_format}
+        fid = format_id(m["width"], m["height"], fps, m["color"])
+        total_fr = round(m["duration"] * fps)
+        resources.append(
+            f'    <asset id="{aid}" name={quoteattr(path.stem)} start="{at(tc_frames, fps)}" '
+            f'duration="{at(total_fr, fps)}" hasVideo="1" hasAudio="{1 if m["has_audio"] else 0}" '
+            f'format="{fid}" audioSources="1" audioChannels="{m["audio_channels"]}" '
+            f'audioRate="{m["audio_rate"]}">\n'
+            f'      <media-rep kind="original-media" src={quoteattr(path.resolve().as_uri())}/>\n'
+            f'    </asset>')
+
+    pending = {p: sorted((ms, text) for mp, ms, text in markers if mp == p) for p in media}
+    clips, offset = [], 0
+    for i, seg in enumerate(segments):
+        path, s_ms, e_ms = seg[0], seg[1], seg[2]
+        a = assets[path]
+        fps = a["fps"]
+        start_fr, end_fr = round(s_ms / 1000 * fps), round(e_ms / 1000 * fps)
+        dur_seq = round((end_fr - start_fr) / fps * seq_fps)
+        if dur_seq <= 0:
             continue
-        # a retake marker lands on the first clip that ends after it: the clip
-        # holding the kept take, even when the cut merged with nearby silence
-        marker_xml = ""
-        while pending and frames(pending[0][0]) < end_fr:
-            m_ms, m_text = pending.pop(0)
-            m_fr = max(frames(m_ms), start_fr)
-            marker_xml += (
-                f'\n            <marker start={quoteattr(t(tc_frames + m_fr))} '
-                f'duration={quoteattr(t(1))} value={quoteattr(m_text)}/>'
-            )
+        inner = ""
+        if i in chapters:
+            inner += (f'\n            <chapter-marker start="{at(a["tc"] + start_fr, fps)}" '
+                      f'duration="{at(1, fps)}" value={quoteattr(chapters[i])} posterOffset="0s"/>')
+        # a marker lands on the first clip of its file that ends after it:
+        # the clip holding the kept take, even when its cut merged with silence
+        queue = pending[path]
+        while queue and round(queue[0][0] / 1000 * fps) < end_fr:
+            ms, text = queue.pop(0)
+            m_fr = max(round(ms / 1000 * fps), start_fr)
+            inner += (f'\n            <marker start="{at(a["tc"] + m_fr, fps)}" '
+                      f'duration="{at(1, fps)}" value={quoteattr(text)}/>')
+        tc = ' tcFormat="DF"' if a["tcFormat"] == "DF" else ""
+        label = seg[3] if len(seg) > 3 else f"{path.stem} {s_ms / 1000:.1f}s"
         clips.append(
-            f'          <asset-clip ref="r2" offset="{t(offset_fr)}" '
-            f'start="{t(tc_frames + start_fr)}" duration="{t(dur_fr)}"{clip_tc} '
-            f'name={quoteattr(f"{video.stem} {k_start / 1000:.1f}s")} '
-            f'audioRole="dialogue">{marker_xml}\n'
-            f'          </asset-clip>'
-        )
-        offset_fr += dur_fr
+            f'          <asset-clip ref="{a["id"]}" offset="{at(offset, seq_fps)}" '
+            f'start="{at(a["tc"] + start_fr, fps)}" duration="{at(dur_seq, seq_fps)}"{tc} '
+            f'name={quoteattr(label)} audioRole="dialogue">{inner}\n'
+            f'          </asset-clip>')
+        offset += dur_seq
 
-    name = escape(project_name or f"{video.stem} (CutRoom)")
-    audio_rate = "48k" if m["audio_rate"] == 48000 else "44.1k"
+    main_tc = next(a["tcFormat"] for p, a in assets.items()
+                   if (media[p]["width"], media[p]["height"], a["fps"]) == (seq_w, seq_h, seq_fps))
     xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.10">
   <resources>
-    <format id="r1"{format_name} frameDuration="{frame_duration}" width="{m['width']}" height="{m['height']}" colorSpace="{m['color']}"/>
-    <asset id="r2" name={quoteattr(video.stem)} start="{t(tc_frames)}" duration="{t(frames(total_ms))}"
-           hasVideo="1" hasAudio="{1 if m['has_audio'] else 0}" format="r1" audioSources="1"
-           audioChannels="{m['audio_channels']}" audioRate="{m['audio_rate']}">
-      <media-rep kind="original-media" src={quoteattr(video.resolve().as_uri())}/>
-    </asset>
+{chr(10).join(resources)}
   </resources>
   <library>
     <event name="CutRoom">
-      <project name="{name}">
-        <sequence format="r1" duration="{t(offset_fr)}" tcStart="0s" tcFormat="{tc_format}"
-                  audioLayout="stereo" audioRate="{audio_rate}">
+      <project name={quoteattr(project_name)}>
+        <sequence format="{seq_format}" duration="{at(offset, seq_fps)}" tcStart="0s" tcFormat="{main_tc}"
+                  audioLayout="stereo" audioRate="48k">
           <spine>
 {chr(10).join(clips)}
           </spine>
@@ -166,7 +216,7 @@ def write_fcpxml(
 </fcpxml>
 '''
     dst.write_text(xml, encoding="utf-8")
-    print(f"wrote fcpxml timeline: {dst} ({len(clips)} clips)")
+    print(f"wrote fcpxml timeline: {dst} ({len(clips)} clips from {len(media)} files)")
 
 
 def _time(value: str | None) -> Fraction:

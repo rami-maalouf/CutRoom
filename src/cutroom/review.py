@@ -1,45 +1,78 @@
-# the review page: one self-contained html file next to the source. it plays
-# the ORIGINAL media and skips the cut ranges, so reviewing costs no render and
-# no new media files. every judgment call (R*/M*) and short candidate (S*) has
+# the review page: one self-contained html file. it plays the ORIGINAL media
+# and skips the cut ranges, so reviewing costs no render and no new media
+# files. every judgment call (R*/M*), select (V*) and short candidate (S*) has
 # an id, a play button and a toggle; the toggles build feedback text to paste
 # back to the agent, which edits the project file and re-plans in a second.
+# for a folder of clips the page shows the vlog: the selects in order, by chapter.
 
 import json
 from pathlib import Path
 
-from .pipeline import Plan, plan_data
-from .project import project_path
+from . import project
+from .pipeline import plan_data
 
 
-def short_keeps(plan_keeps: list[list[float]], start: float, end: float) -> list[list[float]]:
-    # the clean-cut segments that fall inside a short's range (seconds)
-    out = []
-    for s, e in plan_keeps:
-        a, b = max(s, start), min(e, end)
-        if b - a > 0.05:
-            out.append([round(a, 3), round(b, 3)])
-    return out
+def _secs(r) -> list[float]:
+    return [round(r[0] / 1000, 3), round(r[1] / 1000, 3)]
 
 
-def write_review(plan: Plan, source: Path, sessions: list[dict], kind: str,
-                 shorts: list[dict], dst: Path) -> Path:
-    data = plan_data(plan, source)
-    offset = 0.0
-    media = []
-    for s in sessions:
+def _clock(seconds: float) -> str:
+    m, s = divmod(max(0.0, seconds), 60)
+    return f"{int(m)}:{s:04.1f}"
+
+
+def _where(item: dict) -> str:
+    # human description of where an item comes from
+    segs = item.get("segments") or [item]
+    first = segs[0]
+    clip = f"{first['clip']} " if "clip" in first else ""
+    more = f" + {len(segs) - 1} more" if len(segs) > 1 else ""
+    return f"{clip}{_clock(first['start'])}-{_clock(first['end'])}{more}"
+
+
+def write_review(job, dst: Path) -> Path:
+    plan = job.plan
+    data = plan_data(plan, job.src)
+    media, offset = [], 0.0
+    for s in job.sessions:
         media.append({"uri": s["path"].resolve().as_uri(), "offset": round(offset / 1000, 3),
-                      "duration": round(s["durationMs"] / 1000, 3)})
+                      "duration": round(s["durationMs"] / 1000, 3),
+                      "name": s.get("rel", s["path"].name)})
         offset += s["durationMs"]
+    proj = project.project_path(job.src)
     data.update(
-        title=source.stem,
-        kind=kind,
+        title=job.stem,
+        kind=job.kind,
         media=media,
-        projectFile=project_path(source).name,
-        exportCommand=f"cutroom export {json.dumps(str(source))}",
-        shorts=[{**s, "keeps": short_keeps(data["keeps"], s["start"], s["end"])} for s in shorts],
+        projectFile=proj.relative_to(job.src).as_posix() if job.kind == "folder" else proj.name,
+        exportCommand=f"cutroom export {json.dumps(str(job.src))}",
+        shorts=[{**s, "where": _where(s), "keeps": [_secs(r) for r in job.item_segments(s)]}
+                for s in job.data["shorts"]],
     )
+    if job.kind == "folder":
+        words = plan.words or []
+        selects, raw = [], []
+        for item in job.data["selects"]:
+            span = project.segments(item, job.offsets)[0]
+            raw.append(span)
+            text = " ".join(w["word"] for w in words if span[0] <= w["startMs"] < span[1])
+            keeps = [_secs(r) for r in job.item_segments(item)]
+            selects.append({"id": item["id"], "chapter": item.get("chapter", ""), "title": item.get("title", ""),
+                            "why": item.get("why", ""), "where": _where(item), "text": text, "keeps": keeps})
+        data.update(
+            keeps=[_secs(r) for r in job.program],
+            program=[[*_secs(r), r[2]] for r in job.program],
+            keptSeconds=round(sum(r[1] - r[0] for r in job.program) / 1000, 3),
+            chapters={str(i): title for i, title in job.chapters.items()},
+            selects=selects,
+            sentences=[x for x in data["sentences"]
+                       if any(x["end"] * 1000 > a and x["start"] * 1000 < b for a, b in raw)],
+            finalCuts=[],
+            protectedRanges=[],
+        )
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
-    dst.write_text(PAGE.replace("__TITLE__", source.stem).replace("__DATA__", payload), encoding="utf-8")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(PAGE.replace("__TITLE__", job.stem).replace("__DATA__", payload), encoding="utf-8")
     print(f"wrote review page: {dst}")
     return dst
 
@@ -53,7 +86,7 @@ PAGE = r"""<!doctype html>
 <style>
   :root {
     --bg: #f6f6f4; --panel: #ffffff; --ink: #1d1d1f; --muted: #6e6e73; --line: #e3e3e0;
-    --keep: #34c759; --cut: #c7c7cc; --retake: #ff453a; --manual: #ff9f0a; --rejected: #8e8e93;
+    --keep: #34c759; --keep2: #248a3d; --cut: #c7c7cc; --retake: #ff453a; --manual: #ff9f0a; --rejected: #8e8e93;
     --protect: #0a84ff; --short: #5e5ce6; --accent: #0a84ff;
   }
   * { box-sizing: border-box; }
@@ -85,6 +118,12 @@ PAGE = r"""<!doctype html>
   .seg.manual { background: var(--manual); }
   .seg.rejected { background: transparent; outline: 1.5px dashed var(--rejected); outline-offset: -1.5px; }
   .seg.protect { background: var(--protect); opacity: .55; }
+  .seg.program { color: #fff; font-size: 10px; font-weight: 600; padding-left: 4px; line-height: 22px;
+                 overflow: hidden; white-space: nowrap; }
+  .seg.select-start { box-shadow: inset 1px 0 0 rgba(255, 255, 255, .9); }
+  .chapter { margin: 16px 2px 2px; font-size: 12px; font-weight: 600; color: var(--muted);
+             text-transform: none; letter-spacing: .01em; }
+  .item.dropped { opacity: .5; }
   .seg.short { background: rgba(94, 92, 230, .14); border: 1px solid var(--short); border-radius: 4px;
                color: var(--short); font-size: 10px; font-weight: 600; padding-left: 3px; overflow: hidden; white-space: nowrap; }
   .playhead { position: absolute; top: -3px; height: 64px; width: 2px; background: var(--ink); pointer-events: none; }
@@ -146,11 +185,7 @@ PAGE = r"""<!doctype html>
     </div>
   </section>
   <aside class="card">
-    <div class="tabs">
-      <button data-tab="shorts">Shorts</button>
-      <button data-tab="decisions">Cuts to check</button>
-      <button data-tab="transcript">Transcript</button>
-    </div>
+    <div class="tabs" id="tabs"></div>
     <div class="list" id="list"></div>
   </aside>
 </main>
@@ -167,11 +202,13 @@ const D = JSON.parse(document.getElementById("data").textContent);
 const $ = (id) => document.getElementById(id);
 const fmt = (t) => { t = Math.max(0, t); const m = Math.floor(t / 60), s = t - m * 60;
   return `${m}:${s.toFixed(1).padStart(4, "0")}`; };
+const hours = (t) => t >= 3600 ? `${(t / 3600).toFixed(1)} h` : fmt(t);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const spans = (r) => r.reduce((n, [s, e]) => n + (e - s), 0);
+const FOLDER = D.kind === "folder";
 
-// ---------- media: one element, one or more sessions on a single source timeline ----------
-const isVideo = D.kind === "video";
+// ---------- media: one element, one or more files on a single source timeline ----------
+const isVideo = D.kind !== "screenstudio";
 const el = document.createElement(isVideo ? "video" : "audio");
 el.preload = "auto";
 el.playsInline = true;
@@ -194,19 +231,38 @@ function load(k, local, play) {
   }
 }
 function seek(t, play) {
-  // offsets are rounded to the millisecond, so allow that much at session joins
+  // offsets are rounded to the millisecond, so allow that much at file joins
   let k = D.media.findIndex((m) => t < m.offset + m.duration - 0.002);
   if (k < 0) k = D.media.length - 1;
   load(k, Math.max(0, t - D.media[k].offset), play);
 }
 const now = () => session < 0 ? 0 : D.media[session].offset + el.currentTime;
-// one file per recording session: when a file ends, carry on into the next one
+// one file per session or clip: when a file ends, carry on into the next one
 // unless the current playlist range ends here anyway
 el.addEventListener("ended", () => {
   if (session >= D.media.length - 1) return;
   const next = D.media[session + 1].offset, r = playlist && playlist[idx];
   if (!playlist || (r && r[1] > next)) load(session + 1, 0, true);
 });
+
+// ---------- the axis: source time for one file, program time for a folder's vlog ----------
+const AX = FOLDER ? Math.max(spans(D.keeps), 0.001) : D.durationSeconds;
+function axisOf(t) {
+  if (!FOLDER) return t;
+  let acc = 0;
+  for (const [s, e] of D.keeps) { if (t >= s - 0.01 && t <= e + 0.01) return acc + Math.min(Math.max(t - s, 0), e - s); acc += e - s; }
+  return null;
+}
+function programAt(x) {
+  // axis position -> [range index, source time]
+  let acc = 0;
+  for (let i = 0; i < D.keeps.length; i++) {
+    const [s, e] = D.keeps[i];
+    if (x < acc + (e - s)) return [i, s + (x - acc)];
+    acc += e - s;
+  }
+  return [D.keeps.length - 1, D.keeps[D.keeps.length - 1][1]];
+}
 
 // ---------- playback: a playlist of source ranges, or the plain original ----------
 let playlist = null, idx = 0, mode = "clean";
@@ -221,7 +277,7 @@ function setMode(m) {
   $("mode-clean").classList.toggle("on", m === "clean");
   $("mode-original").classList.toggle("on", m === "original");
   playlist = m === "clean" ? D.keeps : null;
-  if (m === "clean") { idx = Math.max(0, D.keeps.findIndex(([, e]) => e > now())); }
+  if (m === "clean" && !FOLDER) { idx = Math.max(0, D.keeps.findIndex(([, e]) => e > now())); }
 }
 function tick() {
   if (playlist && !el.paused && !el.seeking) {
@@ -230,24 +286,25 @@ function tick() {
       idx += 1;
       if (idx >= playlist.length) { el.pause(); if (playlist !== D.keeps) setMode("clean"); }
       else seek(playlist[idx][0], true);
-    } else if (r && t < r[0] - 0.3) {
+    } else if (r && (t < r[0] - 0.3 || t > r[1] + 0.3)) {
       seek(r[0], true);
     }
   }
   const t = now();
-  $("playhead").style.left = `${(t / D.durationSeconds) * 100}%`;
-  let clock = `source ${fmt(t)} / ${fmt(D.durationSeconds)}`;
-  if (mode === "clean" && playlist === D.keeps) {
-    const done = spans(D.keeps.slice(0, idx)) + Math.max(0, t - (D.keeps[idx] || [t])[0]);
-    clock = `clean ${fmt(done)} / ${fmt(D.keptSeconds)}  ·  ${clock}`;
-  } else if (playlist && playlist !== D.keeps) {
-    clock = `${$("clock").dataset.label}  ·  ${clock}`;
-  }
+  const inProgram = mode === "clean" && playlist === D.keeps;
+  const x = inProgram ? spans(D.keeps.slice(0, idx)) + Math.max(0, t - (D.keeps[idx] || [t])[0]) : axisOf(t);
+  $("playhead").style.display = x === null ? "none" : "block";
+  if (x !== null) $("playhead").style.left = `${(x / AX) * 100}%`;
+  const file = FOLDER && session >= 0 ? `${D.media[session].name} ${fmt(el.currentTime)}` : `source ${fmt(t)} / ${fmt(D.durationSeconds)}`;
+  let clock = file;
+  if (inProgram) clock = `${FOLDER ? "vlog" : "clean"} ${fmt(x)} / ${fmt(D.keptSeconds)}  ·  ${clock}`;
+  else if (playlist && playlist !== D.keeps) clock = `${$("clock").dataset.label}  ·  ${clock}`;
   $("clock").textContent = clock;
   $("toggle").textContent = el.paused ? "Play" : "Pause";
   requestAnimationFrame(tick);
 }
 
+$("mode-clean").textContent = FOLDER ? "Vlog" : "Clean cut";
 $("mode-clean").onclick = () => setMode("clean");
 $("mode-original").onclick = () => setMode("original");
 $("toggle").onclick = () => {
@@ -256,44 +313,82 @@ $("toggle").onclick = () => {
 };
 $("timeline").onclick = (ev) => {
   const box = $("timeline").getBoundingClientRect();
-  const t = ((ev.clientX - box.left) / box.width) * D.durationSeconds;
-  setMode("original"); seek(t, true);
+  const x = ((ev.clientX - box.left) / box.width) * AX;
+  if (FOLDER) { const [i, t] = programAt(x); setMode("clean"); idx = i; seek(t, true); }
+  else { setMode("original"); seek(x, true); }
 };
 
 // ---------- timeline ----------
-const rejected = new Set(), picked = new Set();
-const pct = (t) => `${(t / D.durationSeconds) * 100}%`;
-function seg(lane, s, e, cls, text) {
+const rejected = new Set(), picked = new Set(), dropped = new Set();
+const pct = (x) => `${(x / AX) * 100}%`;
+function seg(lane, s, e, cls, text, style) {
   const d = document.createElement("div");
   d.className = `seg ${cls}`; d.style.left = pct(s); d.style.width = `calc(${pct(e - s)} + 1px)`;
+  if (style) Object.assign(d.style, style);
   if (text) { d.textContent = text; d.title = text; }
   $(lane).appendChild(d);
 }
 function drawCuts() {
   $("lane-base").innerHTML = "";
+  if (FOLDER) {
+    // one block per chapter, a thin gap between selects, dropped selects dimmed
+    let acc = 0, chapterIndex = -1;
+    D.program.forEach(([s, e, id], i) => {
+      if (D.chapters[i] !== undefined) chapterIndex += 1;
+      const shade = chapterIndex % 2 ? "var(--keep2)" : "var(--keep)";
+      const first = i === 0 || D.program[i - 1][2] !== id;
+      seg("lane-base", acc, acc + (e - s), `program${first ? " select-start" : ""}`, D.chapters[i] || "",
+          { background: dropped.has(id) ? "var(--cut)" : shade });
+      acc += e - s;
+    });
+    return;
+  }
   D.finalCuts.forEach(([s, e]) => seg("lane-base", s, e, "cut"));
   D.decisions.forEach((d) => seg("lane-base", d.start, d.end,
     d.status === "cut" && !rejected.has(d.id) ? (d.reason === "manual" ? "manual" : "retake") : "rejected"));
 }
-drawCuts();
-D.protectedRanges.forEach(([s, e]) => seg("lane-marks", s, e, "protect"));
+function drawMarks() {
+  $("lane-marks").innerHTML = "";
+  if (FOLDER) {
+    // a tick where each retake or manual cut was taken out of the vlog
+    D.decisions.forEach((d) => {
+      let x = null;
+      for (const t of [d.end, d.start]) { x = axisOf(t); if (x !== null) break; }
+      if (x !== null) seg("lane-marks", x, x + AX / 600, rejected.has(d.id) || d.status !== "cut" ? "rejected" : (d.reason === "manual" ? "manual" : "retake"));
+    });
+  } else {
+    D.protectedRanges.forEach(([s, e]) => seg("lane-marks", s, e, "protect"));
+  }
+}
+function drawShorts() {
+  $("lane-shorts").innerHTML = "";
+  D.shorts.forEach((s) => {
+    if (!FOLDER) return seg("lane-shorts", s.keeps.length ? s.keeps[0][0] : 0, s.keeps.length ? s.keeps.at(-1)[1] : 0, "short", s.id);
+    const xs = s.keeps.flatMap(([a, b]) => [axisOf(a), axisOf(b)]);
+    if (xs.length && xs.every((x) => x !== null)) seg("lane-shorts", Math.min(...xs), Math.max(...xs), "short", s.id);
+  });
+}
+drawCuts(); drawMarks(); drawShorts();
 
 // ---------- feedback ----------
-D.shorts.forEach((s) => seg("lane-shorts", s.start, s.end, "short", s.id));
-
-
 function feedback() {
   const lines = [];
+  if (dropped.size) lines.push(`Remove ${[...dropped].join(", ")} from selects in ${D.projectFile}.`);
   if (rejected.size) {
     lines.push(`Reject ${[...rejected].join(", ")} in ${D.projectFile}. Add to edits.keeps:`);
-    D.decisions.filter((d) => rejected.has(d.id)).forEach((d) =>
-      lines.push(`  [${d.start}, ${d.end}, "reject ${d.id}"]`));
+    D.decisions.filter((d) => rejected.has(d.id)).forEach((d) => lines.push(`  ${keepEntry(d)}`));
   }
   if (picked.size) {
     lines.push(`Export ${[...picked].join(", ")}:`);
     lines.push(`  ${D.exportCommand} ${[...picked].join(" ")}`);
   }
   $("feedback").value = lines.join("\n") || "Nothing selected yet.";
+}
+function keepEntry(d) {
+  if (!FOLDER) return `[${d.start}, ${d.end}, "reject ${d.id}"]`;
+  const k = D.media.findIndex((m) => d.start < m.offset + m.duration - 0.002);
+  const m = D.media[Math.max(0, k)];
+  return `{"clip": "${m.name}", "start": ${(d.start - m.offset).toFixed(3)}, "end": ${(d.end - m.offset).toFixed(3)}, "note": "reject ${d.id}"}`;
 }
 $("copy").onclick = async () => {
   const box = $("feedback");
@@ -303,13 +398,33 @@ $("copy").onclick = async () => {
 };
 
 // ---------- side lists ----------
+function vlogView() {
+  if (!D.selects.length) return `<div class="empty">No selects yet: the vlog is the whole clean footage.
+    Ask the agent to choose moments; they are stored under "selects" in ${esc(D.projectFile)}.</div>`;
+  let last = null;
+  return D.selects.map((s) => {
+    const head = s.chapter && s.chapter !== last ? `<div class="chapter">${esc(s.chapter)}</div>` : "";
+    last = s.chapter || last;
+    const off = dropped.has(s.id);
+    return `${head}
+    <div class="item ${off ? "dropped" : ""}">
+      <div class="top"><span class="id">${s.id}</span>${s.title ? `<strong>${esc(s.title)}</strong>` : ""}</div>
+      <div class="tag">${esc(s.where)}  ·  ${fmt(spans(s.keeps))} in the vlog</div>
+      ${s.text ? `<p>${esc(s.text)}</p>` : ""}
+      ${s.why ? `<p class="tag">${esc(s.why)}</p>` : ""}
+      <div class="actions">
+        <button class="small" data-play-select="${s.id}">Play</button>
+        <button class="small ${off ? "on" : ""}" data-drop="${s.id}">${off ? "Dropped" : "Drop"}</button>
+      </div>
+    </div>`; }).join("");
+}
 function shortsView() {
   if (!D.shorts.length) return `<div class="empty">No short candidates yet. Ask the agent to propose some;
     they are stored under "shorts" in ${esc(D.projectFile)}.</div>`;
   return D.shorts.map((s) => `
     <div class="item ${picked.has(s.id) ? "picked" : ""}">
       <div class="top"><span class="id">${s.id}</span><strong>${esc(s.title)}</strong></div>
-      <div class="tag">${fmt(s.start)} - ${fmt(s.end)} source  ·  ${fmt(spans(s.keeps))} clean  ·  ${s.keeps.length} segments</div>
+      <div class="tag">${esc(s.where)}  ·  ${fmt(spans(s.keeps))} clean  ·  ${s.keeps.length} segments</div>
       ${s.why ? `<p>${esc(s.why)}</p>` : ""}
       <div class="actions">
         <button class="small" data-play-short="${s.id}">Play clean</button>
@@ -319,9 +434,7 @@ function shortsView() {
 }
 function decisionsView() {
   if (!D.decisions.length) return `<div class="empty">No retakes or manual cuts. Only silences were cut.</div>`;
-  return D.decisions.map((d) => {
-    const off = rejected.has(d.id) || d.status === "rejected";
-    return `
+  return D.decisions.map((d) => `
     <div class="item">
       <div class="top"><span class="id">${d.id}</span>
         <span class="tag">${d.reason}  ·  ${fmt(d.start)} - ${fmt(d.end)}  ·  ${(d.end - d.start).toFixed(1)} s
@@ -334,42 +447,55 @@ function decisionsView() {
         <button class="small" data-play-removed="${d.id}">Play removed</button>
         ${d.status === "cut" ? `<button class="small ${rejected.has(d.id) ? "on" : ""}" data-reject="${d.id}">${rejected.has(d.id) ? "Rejected" : "Reject"}</button>` : ""}
       </div>
-    </div>`; }).join("");
+    </div>`).join("");
 }
 function transcriptView() {
   if (!D.sentences.length) return `<div class="empty">No transcript (silence-only run).</div>`;
-  const inCut = (s) => D.finalCuts.some(([a, b]) => s.start >= a - 0.05 && s.end <= b + 0.05);
+  const gone = FOLDER
+    ? (s) => !D.keeps.some(([a, b]) => s.end > a + 0.05 && s.start < b - 0.05)
+    : (s) => D.finalCuts.some(([a, b]) => s.start >= a - 0.05 && s.end <= b + 0.05);
   return D.sentences.map((s) =>
-    `<div class="sentence ${inCut(s) ? "gone" : ""}" data-seek="${s.start}"><time>${fmt(s.start)}</time><span>${esc(s.text)}</span></div>`
+    `<div class="sentence ${gone(s) ? "gone" : ""}" data-seek="${s.start}"><time>${fmt(s.start)}</time><span>${esc(s.text)}</span></div>`
   ).join("");
 }
-let tab = D.shorts.length ? "shorts" : "decisions";
+const TABS = FOLDER
+  ? { vlog: ["Vlog", vlogView, () => D.selects.length], shorts: ["Shorts", shortsView, () => D.shorts.length],
+      decisions: ["Cuts to check", decisionsView, () => D.decisions.length], transcript: ["Transcript", transcriptView, () => D.sentences.length] }
+  : { shorts: ["Shorts", shortsView, () => D.shorts.length], decisions: ["Cuts to check", decisionsView, () => D.decisions.length],
+      transcript: ["Transcript", transcriptView, () => D.sentences.length] };
+$("tabs").innerHTML = Object.keys(TABS).map((k) => `<button data-tab="${k}"></button>`).join("");
+let tab = FOLDER ? "vlog" : (D.shorts.length ? "shorts" : "decisions");
 function render() {
   document.querySelectorAll(".tabs button").forEach((b) => {
+    const [label, , count] = TABS[b.dataset.tab];
     b.classList.toggle("on", b.dataset.tab === tab);
-    const n = { shorts: D.shorts.length, decisions: D.decisions.length, transcript: D.sentences.length }[b.dataset.tab];
-    b.textContent = `${{ shorts: "Shorts", decisions: "Cuts to check", transcript: "Transcript" }[b.dataset.tab]} (${n})`;
+    b.textContent = `${label} (${count()})`;
   });
-  $("list").innerHTML = { shorts: shortsView, decisions: decisionsView, transcript: transcriptView }[tab]();
+  $("list").innerHTML = TABS[tab][1]();
   feedback();
 }
 document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; render(); }));
 $("list").onclick = (ev) => {
-  const b = ev.target.closest("[data-play-short],[data-pick],[data-play-result],[data-play-removed],[data-reject],[data-seek]");
+  const b = ev.target.closest("[data-play-short],[data-pick],[data-play-result],[data-play-removed],[data-reject],[data-seek],[data-play-select],[data-drop]");
   if (!b) return;
   const ds = b.dataset, byId = (id) => D.decisions.find((d) => d.id === id);
   if (ds.playShort) { const s = D.shorts.find((x) => x.id === ds.playShort); mode = "short"; playRanges(s.keeps, `${s.id} ${s.title}`); }
+  if (ds.playSelect) { const s = D.selects.find((x) => x.id === ds.playSelect); mode = "select"; playRanges(s.keeps, `${s.id} ${s.title || s.chapter}`); }
   if (ds.pick) { picked.has(ds.pick) ? picked.delete(ds.pick) : picked.add(ds.pick); render(); }
+  if (ds.drop) { dropped.has(ds.drop) ? dropped.delete(ds.drop) : dropped.add(ds.drop); drawCuts(); render(); }
   if (ds.playResult) { const d = byId(ds.playResult); mode = "check";
     playRanges([[Math.max(0, d.start - 3), d.start], [d.end, Math.min(D.durationSeconds, d.end + 3)]], `${d.id} result`); }
   if (ds.playRemoved) { const d = byId(ds.playRemoved); mode = "check"; playRanges([[d.start, d.end]], `${d.id} removed`); }
-  if (ds.reject) { rejected.has(ds.reject) ? rejected.delete(ds.reject) : rejected.add(ds.reject); drawCuts(); render(); }
+  if (ds.reject) { rejected.has(ds.reject) ? rejected.delete(ds.reject) : rejected.add(ds.reject); drawCuts(); drawMarks(); render(); }
   if (ds.seek) { setMode("original"); seek(parseFloat(ds.seek), true); }
 };
 
 $("title").textContent = D.title;
-$("stats").textContent = `${fmt(D.durationSeconds)} → ${fmt(D.keptSeconds)} clean  ·  `
-  + `${D.decisions.filter((d) => d.status === "cut").length} judgment cuts  ·  ${D.shorts.length} short candidates`;
+const judged = D.decisions.filter((d) => d.status === "cut").length;
+$("stats").textContent = FOLDER
+  ? `${D.media.length} clips, ${hours(D.durationSeconds)} of footage → ${fmt(D.keptSeconds)} vlog  ·  `
+    + `${D.selects.length} selects  ·  ${Object.keys(D.chapters).length} chapters  ·  ${judged} judgment cuts  ·  ${D.shorts.length} short candidates`
+  : `${fmt(D.durationSeconds)} → ${fmt(D.keptSeconds)} clean  ·  ${judged} judgment cuts  ·  ${D.shorts.length} short candidates`;
 setMode("clean");
 render();
 requestAnimationFrame(tick);

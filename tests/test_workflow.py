@@ -102,7 +102,7 @@ def test_export_short_to_fcpxml_uses_only_its_clean_segments(tmp_path, talk):
 
 def test_export_unknown_short_exits(tmp_path, talk):
     write_project(talk, shorts=[{"id": "S1", "start": 1, "end": 2}])
-    with pytest.raises(SystemExit, match="no short 'S9'"):
+    with pytest.raises(SystemExit, match="no 'S9' in the project file"):
         main(["export", str(talk), "S9"])
 
 

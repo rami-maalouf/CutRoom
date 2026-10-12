@@ -48,11 +48,12 @@ def page_data(root):
 
 
 def test_clips_are_ordered_by_capture_time_and_digested(shoot):
-    main(["digest", str(shoot), "--shards", "2", "--sheets"])
+    main(["digest", str(shoot), "--shards", "2"])
     digest = (shoot / "cutroom" / "digest" / "all.md").read_text()
     assert digest.index("## phone/c.mov") < digest.index("## cam/a.mp4") < digest.index("## cam/broll.mp4")
     assert "[0.10-1.90] Hello everyone." in digest
-    assert "(no speech) contact sheet: sheets/cam__broll.mp4.jpg" in digest
+    assert "(no speech  ·  contact sheet: sheets/cam__broll.mp4.jpg)" in digest
+    assert "contact sheet: sheets/phone__c.mov.jpg" in digest  # every clip gets one
     assert (shoot / "cutroom" / "sheets" / "cam__broll.mp4.jpg").stat().st_size > 1000
     assert len(list((shoot / "cutroom" / "digest").glob("shard-*.md"))) == 2
 
@@ -163,13 +164,14 @@ def test_retake_crossing_a_select_edge_does_not_erase_it(shoot):
                       (4.1, 4.5, "We"), (4.5, 4.9, "build"), (4.9, 5.3, "great"), (5.3, 5.9, "apps.")])
     save(shoot, selects=[{"id": "V1", "clip": "phone/c.mov", "start": 0.0, "end": 2.0},
                          {"id": "V2", "clip": "phone/c.mov", "start": 4.0, "end": 6.0}])
-    main(["review", str(shoot)])
+    main(["review", str(shoot), "--retakes"])
     data = page_data(shoot)
     assert all(s["keeps"] for s in data["selects"])
     assert data["decisions"] == []
-    # one select spanning both takes keeps the retake cut inside it
+    # one select spanning both takes keeps the retake cut inside it (vlogs only
+    # detect retakes when asked: fumbles are usually part of the story)
     save(shoot, selects=[{"id": "V1", "clip": "phone/c.mov", "start": 0.0, "end": 6.0}])
-    main(["review", str(shoot)])
+    main(["review", str(shoot), "--retakes"])
     data = page_data(shoot)
     assert [d["id"] for d in data["decisions"]] == ["R1"]
     assert data["selects"][0]["keeps"][0][0] >= 3.9

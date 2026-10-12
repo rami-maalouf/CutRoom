@@ -74,7 +74,8 @@ def _overlaps(a: tuple, ranges: list[tuple]) -> bool:
 def plan_cuts(sessions: list[dict], args, cache: Path | None,
               action_ms: list[float] | None = None,
               edits: dict[str, list[Edit]] | None = None,
-              scopes: list[Range] | None = None) -> Plan:
+              scopes: list[Range] | None = None,
+              need_words: bool = False) -> Plan:
     # scopes: when an editor has chosen moments (a folder's selects and shorts),
     # a retake cut only applies if it lies completely inside one of them. in
     # conversations short phrases repeat naturally ("there you go"), and a cut
@@ -93,7 +94,7 @@ def plan_cuts(sessions: list[dict], args, cache: Path | None,
     with ThreadPoolExecutor(2) as pool:
         silences_job = pool.submit(collect_silences, sessions, args.noise, args.min_silence)
         words_job = None
-        if not args.no_retakes:
+        if not args.no_retakes or need_words:
             words_job = pool.submit(transcribe_sessions, sessions, cache, args.backend)
         silences = silences_job.result()
         words = words_job.result() if words_job else None
@@ -107,7 +108,8 @@ def plan_cuts(sessions: list[dict], args, cache: Path | None,
         plan.words = words
         plan.sentences = words_to_sentences(words)
         print(f"transcript sentences: {len(plan.sentences)}")
-        retakes = find_retake_cuts(plan.sentences, args.window, args.threshold, args.pre_roll * 1000)
+        retakes = [] if args.no_retakes else find_retake_cuts(
+            plan.sentences, args.window, args.threshold, args.pre_roll * 1000)
         for n, cut in enumerate(retakes, 1):
             cut["id"] = f"R{n}"
         if scopes is not None:

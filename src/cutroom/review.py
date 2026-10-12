@@ -8,8 +8,12 @@
 import json
 from pathlib import Path
 
+import html
+import re
+
 from . import project
 from .pipeline import plan_data
+from .script import story_text
 
 
 def _secs(r) -> list[float]:
@@ -28,6 +32,52 @@ def _where(item: dict) -> str:
     clip = f"{first['clip']} " if "clip" in first else ""
     more = f" + {len(segs) - 1} more" if len(segs) > 1 else ""
     return f"{clip}{_clock(first['start'])}-{_clock(first['end'])}{more}"
+
+
+def _inline(text: str) -> str:
+    text = html.escape(text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+    return re.sub(r"`(.+?)`", r"<code>\1</code>", text)
+
+
+def markdown(text: str) -> str:
+    # just enough markdown for a story outline: headings, lists, tables, paragraphs
+    out, table, para = [], [], []
+
+    def flush():
+        if para:
+            out.append(f"<p>{_inline(' '.join(para))}</p>")
+            para.clear()
+        if table:
+            rows = [r for r in table if not re.fullmatch(r"\|[\s:|-]+\|?", r)]
+            cells = [[c.strip() for c in r.strip().strip("|").split("|")] for r in rows]
+            body = "".join("<tr>" + "".join(f"<{'th' if i == 0 else 'td'}>{_inline(c)}</{'th' if i == 0 else 'td'}>"
+                                             for c in row) + "</tr>" for i, row in enumerate(cells))
+            out.append(f"<table>{body}</table>")
+            table.clear()
+
+    for line in text.splitlines():
+        if line.lstrip().startswith("|"):
+            if para:
+                flush()
+            table.append(line)
+            continue
+        if table:
+            flush()
+        heading = re.match(r"(#{1,4})\s+(.*)", line)
+        bullet = re.match(r"\s*(?:[-*]|\d+\.)\s+(.*)", line)
+        if heading:
+            flush()
+            out.append(f"<h{len(heading.group(1)) + 2}>{_inline(heading.group(2))}</h{len(heading.group(1)) + 2}>")
+        elif bullet:
+            flush()
+            out.append(f"<li>{_inline(bullet.group(1))}</li>")
+        elif not line.strip():
+            flush()
+        else:
+            para.append(line.strip())
+    flush()
+    return "\n".join(out)
 
 
 def write_review(job, dst: Path) -> Path:
@@ -49,6 +99,8 @@ def write_review(job, dst: Path) -> Path:
         shorts=[{**s, "where": _where(s), "keeps": [_secs(r) for r in job.item_segments(s)]}
                 for s in job.data["shorts"]],
     )
+    data["style"] = job.data["style"]
+    data["story"] = markdown(story_text(job))
     if job.kind == "folder":
         words = plan.words or []
         selects, raw = [], []
@@ -58,7 +110,9 @@ def write_review(job, dst: Path) -> Path:
             text = " ".join(w["word"] for w in words if span[0] <= w["startMs"] < span[1])
             keeps = [_secs(r) for r in job.item_segments(item)]
             selects.append({"id": item["id"], "chapter": item.get("chapter", ""), "title": item.get("title", ""),
-                            "why": item.get("why", ""), "where": _where(item), "text": text, "keeps": keeps})
+                            "why": item.get("why", ""), "where": _where(item), "text": text, "keeps": keeps,
+                            "beat": item.get("beat", ""), "role": item.get("role", ""),
+                            "intent": item.get("intent", ""), "raw": bool(item.get("raw"))})
         data.update(
             keeps=[_secs(r) for r in job.program],
             program=[[*_secs(r), r[2]] for r in job.program],
@@ -124,6 +178,18 @@ PAGE = r"""<!doctype html>
   .chapter { margin: 16px 2px 2px; font-size: 12px; font-weight: 600; color: var(--muted);
              text-transform: none; letter-spacing: .01em; }
   .item.dropped { opacity: .5; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--bg); color: var(--muted); }
+  .chip.raw { background: rgba(255, 159, 10, .14); color: #b25000; }
+  .intent { color: var(--muted); font-style: italic; }
+  .story { padding: 4px 6px 12px; }
+  .story h3, .story h4, .story h5 { margin: 14px 0 6px; font-size: 14px; }
+  .story h3 { font-size: 16px; }
+  .story p { margin: 6px 0; }
+  .story li { margin: 3px 0 3px 18px; }
+  .story table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 8px 0; }
+  .story th, .story td { border: 1px solid var(--line); padding: 4px 6px; vertical-align: top; text-align: left; }
+  .story code { font-size: 12px; background: var(--bg); padding: 0 4px; border-radius: 4px; }
   .seg.short { background: rgba(94, 92, 230, .14); border: 1px solid var(--short); border-radius: 4px;
                color: var(--short); font-size: 10px; font-weight: 600; padding-left: 3px; overflow: hidden; white-space: nowrap; }
   .playhead { position: absolute; top: -3px; height: 64px; width: 2px; background: var(--ink); pointer-events: none; }
@@ -417,6 +483,8 @@ function vlogView() {
     <div class="item ${off ? "dropped" : ""}">
       <div class="top"><span class="id">${s.id}</span>${s.title ? `<strong>${esc(s.title)}</strong>` : ""}</div>
       <div class="tag">${esc(s.where)}  ·  ${fmt(spans(s.keeps))} in the vlog</div>
+      ${s.beat || s.role || s.raw ? `<div class="chips">${[s.beat, s.role].filter(Boolean).map((t) => `<span class="chip">${esc(t)}</span>`).join("")}${s.raw ? `<span class="chip raw" title="plays as it happened: no silence or retake cuts inside">raw</span>` : ""}</div>` : ""}
+      ${s.intent ? `<p class="intent">${esc(s.intent)}</p>` : ""}
       ${s.text ? `<p>${esc(s.text)}</p>` : ""}
       ${s.why ? `<p class="tag">${esc(s.why)}</p>` : ""}
       <div class="actions">
@@ -465,18 +533,22 @@ function transcriptView() {
     `<div class="sentence ${gone(s) ? "gone" : ""}" data-seek="${s.start}"><time>${fmt(s.start)}</time><span>${esc(s.text)}</span></div>`
   ).join("");
 }
+function storyView() {
+  return `<div class="story">${D.story}</div>`;
+}
+const STORY = D.story ? { story: ["Story", storyView, null] } : {};
 const TABS = FOLDER
-  ? { vlog: ["Vlog", vlogView, () => D.selects.length], shorts: ["Shorts", shortsView, () => D.shorts.length],
+  ? { ...STORY, vlog: ["Vlog", vlogView, () => D.selects.length], shorts: ["Shorts", shortsView, () => D.shorts.length],
       decisions: ["Cuts", decisionsView, () => D.decisions.length], transcript: ["Transcript", transcriptView, () => D.sentences.length] }
-  : { shorts: ["Shorts", shortsView, () => D.shorts.length], decisions: ["Cuts to check", decisionsView, () => D.decisions.length],
+  : { ...STORY, shorts: ["Shorts", shortsView, () => D.shorts.length], decisions: ["Cuts to check", decisionsView, () => D.decisions.length],
       transcript: ["Transcript", transcriptView, () => D.sentences.length] };
 $("tabs").innerHTML = Object.keys(TABS).map((k) => `<button data-tab="${k}"></button>`).join("");
-let tab = FOLDER ? "vlog" : (D.shorts.length ? "shorts" : "decisions");
+let tab = D.story && !(FOLDER && D.selects.length) ? "story" : FOLDER ? "vlog" : (D.shorts.length ? "shorts" : "decisions");
 function render() {
   document.querySelectorAll(".tabs button").forEach((b) => {
     const [label, , count] = TABS[b.dataset.tab];
     b.classList.toggle("on", b.dataset.tab === tab);
-    b.textContent = `${label} (${count()})`;
+    b.textContent = count ? `${label} (${count()})` : label;
   });
   $("list").innerHTML = TABS[tab][1]();
   feedback();

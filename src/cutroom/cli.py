@@ -5,6 +5,7 @@
 #   cutroom digest <folder>                    transcribe a folder of clips, write agent digest shards
 #   cutroom candidates <folder>                check agents' candidates, turn them into selects
 #   cutroom review <source>                    review page: plays the cut without rendering
+#   cutroom script <source>                    read-through: the cut as a script, for story review
 #   cutroom export <source> vlog|S1|V1 ...     export the vlog, shorts or selects from the clean cut
 #   cutroom import <video> <timeline.fcpxml>   bring edits made in final cut back
 #   cutroom transcribe <media>...              word-level transcript cache only
@@ -24,18 +25,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import __version__, folder, project
-from .core import Range, clean_segments, drop_hallucinated_words, invert_cuts, merge_ranges, resolve_pacing, snap_range
+from .core import (Range, clean_segments, drop_hallucinated_words, invert_cuts, merge_ranges,
+                   resolve_pacing, snap_range, subtract_ranges)
 from .fcpxml import read_keeps, write_fcpxml, write_timeline
 from .media import collect_silences, probe_video, render, require_ffmpeg, versioned_output
 from .pipeline import Plan, plan_cuts, write_report
 from .review import write_review
+from .script import build_script, script_path
 from .screenstudio import action_times, check_package, edited_ranges, mic_sessions, write_cut_package
 from .transcribe import transcribe_sessions
 
 
 def add_cut_options(ap: argparse.ArgumentParser) -> None:
-    ap.add_argument("--pacing", choices=["tight", "balanced", "relaxed"], default="balanced",
-                    help="how rigorous silence cutting is: tight cuts hard, relaxed embraces pauses")
+    ap.add_argument("--pacing", choices=["tight", "balanced", "relaxed"], default=None,
+                    help="how rigorous silence cutting is (default by style: talking-head balanced, vlog relaxed)")
     ap.add_argument("--noise", type=float, default=-35.0, help="silence threshold in dB")
     ap.add_argument("--min-silence", type=float, default=None, help="min silence duration in seconds")
     ap.add_argument("--trail", type=float, default=None,
@@ -54,8 +57,10 @@ def add_cut_options(ap: argparse.ArgumentParser) -> None:
                     help="extra cut range in seconds for this run (persistent: edits.cuts in the project file)")
     ap.add_argument("--keep", action="append", default=[], metavar="START-END",
                     help="range never cut in this run (persistent: edits.keeps in the project file)")
-    ap.add_argument("--no-retakes", action="store_true",
-                    help="skip retake detection (and transcription): silences only")
+    ap.add_argument("--no-retakes", dest="no_retakes", action="store_true", default=None,
+                    help="skip retake detection (default for vlogs, where fumbles are part of the story)")
+    ap.add_argument("--retakes", dest="no_retakes", action="store_false",
+                    help="detect and cut retakes (default for talking heads)")
     ap.add_argument("--no-silences", action="store_true", help="skip silence cutting: retakes only")
     ap.add_argument("--review-silences", action="store_true",
                     help="approve silence cuts one by one instead of as a batch")
@@ -94,9 +99,10 @@ class Job:
     def stem(self) -> str:
         return self.src.name if self.kind == "folder" else self.src.stem
 
-    def clean(self, ranges: list[Range]) -> list[Range]:
+    def clean(self, ranges: list[Range], raw: bool = False) -> list[Range]:
         # snap chosen ranges to words, never past the edges of their own clip,
-        # then keep only their clean parts
+        # then keep only their clean parts. a raw moment plays as it happened:
+        # only manual cuts are taken out of it.
         if self.plan.words:
             bounds, acc = [], 0.0
             for sess in self.sessions:
@@ -108,10 +114,14 @@ class Job:
                 a, b = snap_range(self.plan.words, s, e)
                 snapped.append((max(a, b0), min(b, b1)))
             ranges = snapped
+        if raw:
+            manual = [(d["startMs"], d["endMs"]) for d in self.plan.decisions
+                      if d["reason"] == "manual" and d["status"] == "cut"]
+            return [r for r in subtract_ranges(ranges, manual) if r[1] - r[0] > 50]
         return clean_segments(self.plan.keeps, ranges)
 
     def item_segments(self, item: dict) -> list[Range]:
-        return self.clean(project.segments(item, self.offsets))
+        return self.clean(project.segments(item, self.offsets), raw=item.get("raw", False))
 
     def media_segments(self, ranges: list[tuple]) -> list[tuple]:
         # timeline ranges -> (file, start_ms, end_ms, label), split at clip joins
@@ -128,6 +138,24 @@ class Job:
                     label = f"{r[2]} " if len(r) > 2 and r[2] else ""
                     out.append((path, a - b0, b - b0, f"{label}{path.stem} {(a - b0) / 1000:.1f}s"))
         return out
+
+
+# what each kind of video needs by default; explicit flags always win
+STYLE_DEFAULTS = {
+    # one speaker, one take after another: a repeated opening is a mistake
+    "talking-head": {"pacing": "balanced", "no_retakes": False},
+    # real moments: fumbles and crosstalk are part of the story, and pauses
+    # often hold action, so only long pauses go
+    "vlog": {"pacing": "relaxed", "no_retakes": True},
+}
+
+
+def apply_style(args, style: str) -> None:
+    for key, value in STYLE_DEFAULTS[style].items():
+        if getattr(args, key, "unset") is None:
+            setattr(args, key, value)
+    resolve_pacing(args)
+    print(f"style: {style} (pacing {args.pacing}, retakes {'off' if args.no_retakes else 'on'})")
 
 
 def open_source(path: Path, args) -> tuple[str, Path, list[dict], list[float]]:
@@ -160,6 +188,7 @@ def make_plan(path: Path, args) -> Job:
     kind, src, sessions, actions = open_source(path, args)
     offsets = folder.offsets(sessions) if kind == "folder" else None
     data = project.load(src, set(offsets) if offsets is not None else None)
+    apply_style(args, data["style"])
     edits = {"cuts": project.edit_ranges(data, "cuts", offsets),
              "keeps": project.edit_ranges(data, "keeps", offsets)}
     if edits["cuts"] or edits["keeps"] or data["selects"] or data["shorts"]:
@@ -169,7 +198,8 @@ def make_plan(path: Path, args) -> Job:
     scopes = None
     if kind == "folder" and (data["selects"] or data["shorts"]):
         scopes = [r for item in data["selects"] + data["shorts"] for r in project.segments(item, offsets)]
-    plan = plan_cuts(sessions, args, cache, actions, edits, scopes)
+    need_words = kind == "folder" or bool(data["selects"] or data["shorts"])
+    plan = plan_cuts(sessions, args, cache, actions, edits, scopes, need_words)
     if kind == "screenstudio":
         # respect the edit already made in screen studio: what it hides counts as cut
         shown = edited_ranges(src)
@@ -187,7 +217,7 @@ def make_plan(path: Path, args) -> Job:
     if selected:
         last = None
         for item in selected:
-            parts = job.clean([(item["startMs"], item["endMs"])])
+            parts = job.clean([(item["startMs"], item["endMs"])], raw=item.get("raw", False))
             if parts and item.get("chapter") and item["chapter"] != last:
                 job.chapters[len(job.program)] = item["chapter"]
                 last = item["chapter"]
@@ -265,6 +295,17 @@ def run_review(args) -> None:
         webbrowser.open(dst.resolve().as_uri())
 
 
+def run_script(args) -> None:
+    args.yes = True
+    job = make_plan(args.source, args)
+    text = build_script(job)
+    dst = args.output or script_path(job)
+    dst.write_text(text, encoding="utf-8")
+    print(f"\nwrote read-through: {dst}")
+    if args.print:
+        print("\n" + text)
+
+
 def run_digest(args) -> None:
     src = args.folder.resolve()
     if not src.is_dir() or is_screenstudio(src):
@@ -279,19 +320,27 @@ def run_digest(args) -> None:
         words, dropped = drop_hallucinated_words(words, silences_job.result())
     if dropped:
         print(f"dropped {len(dropped)} hallucinated words (inside silence)")
-    sheets = {}
-    if args.sheets:
-        offsets = folder.offsets(sessions)
-        speechless = [s for s in sessions if folder.mostly_visual(
-            sum(offsets[s["rel"]] <= w["startMs"] < offsets[s["rel"]] + s["durationMs"] for w in words),
-            s["durationMs"])]
-        out = folder.workdir(src) / "sheets"
-        with ThreadPoolExecutor(4) as pool:
-            done = pool.map(lambda s: folder.contact_sheet(
-                s["path"], out / (s["rel"].replace("/", "__") + ".jpg")), speechless)
-            sheets = {s["rel"]: p.relative_to(folder.workdir(src)).as_posix() for s, p in zip(speechless, done)}
-        print(f"contact sheets: {len(sheets)} mostly visual clips")
-    shards = folder.write_digest(sessions, words, folder.workdir(src) / "digest", args.shards, sheets)
+    # a vlog's picture matters as much as its words: by default every clip gets
+    # a contact sheet for the clip log (a talking head never runs digest)
+    offsets = folder.offsets(sessions)
+    visual = {s["rel"] for s in sessions if folder.mostly_visual(
+        sum(offsets[s["rel"]] <= w["startMs"] < offsets[s["rel"]] + s["durationMs"] for w in words),
+        s["durationMs"])}
+    wanted = [] if args.sheets == "none" else [
+        s for s in sessions if args.sheets == "all" or s["rel"] in visual]
+    out = folder.workdir(src) / "sheets"
+
+    def sheet(s: dict) -> Path:
+        dst = out / (s["rel"].replace("/", "__") + ".jpg")
+        if dst.exists() and dst.stat().st_mtime >= s["path"].stat().st_mtime:
+            return dst  # already made for this clip
+        return folder.contact_sheet(s["path"], dst)
+
+    with ThreadPoolExecutor(4) as pool:
+        made = list(pool.map(sheet, wanted))
+    sheets = {s["rel"]: p.relative_to(folder.workdir(src)).as_posix() for s, p in zip(wanted, made)}
+    print(f"contact sheets: {len(sheets)} ({len(visual)} clips are mostly visual)")
+    shards = folder.write_digest(sessions, words, folder.workdir(src) / "digest", args.shards, sheets, visual)
     print(f"digest: {folder.workdir(src) / 'digest' / 'all.md'} and {len(shards)} shards")
     for path in shards:
         print(f"  {path}")
@@ -459,10 +508,19 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--open", action="store_true", help="open the page in the default browser")
     p.set_defaults(run=run_review)
 
+    p = sub.add_parser("script", help="read-through: the cut as a script in play order, for story review")
+    p.add_argument("source", type=Path)
+    add_cut_options(p)
+    p.add_argument("--output", type=Path, default=None,
+                   help="default <name>.script.md, or <folder>/cutroom/script.md")
+    p.add_argument("--print", action="store_true", help="also print it")
+    p.set_defaults(run=run_script)
+
     p = sub.add_parser("digest", help="folder: transcribe every clip and write agent-readable digest shards")
     p.add_argument("folder", type=Path)
     p.add_argument("--shards", type=int, default=5, help="split the digest for this many parallel agents")
-    p.add_argument("--sheets", action="store_true", help="contact sheets for mostly visual clips")
+    p.add_argument("--sheets", choices=["all", "visual", "none"], default="all",
+                   help="contact sheets for every clip (default), only mostly visual clips, or none")
     p.add_argument("--backend", choices=["mlx", "faster-whisper"], default=None)
     p.set_defaults(run=run_digest)
 
@@ -492,8 +550,6 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(run=run_transcribe)
 
     args = ap.parse_args(argv)
-    if hasattr(args, "pacing"):
-        resolve_pacing(args)
     require_ffmpeg()
     args.run(args)
 

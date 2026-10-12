@@ -6,7 +6,7 @@
 #   cutroom/manifest.json       probe cache: duration, audio, capture time per clip
 #   cutroom/transcripts/        one word-level transcript per clip
 #   cutroom/digest/             compact transcript text for agents, split in shards
-#   cutroom/sheets/             one contact sheet per clip (for clips without speech)
+#   cutroom/sheets/             one contact sheet per clip, for the clip log
 #   cutroom/review.html, exports/
 
 import json
@@ -150,7 +150,7 @@ def _digest_lines(words: list[dict], longest_ms: float = 12000, piece_ms: float 
 
 
 def write_digest(sess: list[dict], words: list[dict], dst: Path, shards: int,
-                 sheets: dict[str, Path] | None = None) -> list[Path]:
+                 sheets: dict[str, Path] | None = None, visual: set[str] = frozenset()) -> list[Path]:
     # compact, agent-readable transcript: one block per clip, one line per
     # sentence with clip-relative times. shards split the shoot into time
     # slices of similar speech length so parallel agents get equal work.
@@ -166,10 +166,12 @@ def write_digest(sess: list[dict], words: list[dict], dst: Path, shards: int,
         lines = [f"[{x['startMs'] / 1000:.2f}-{x['endMs'] / 1000:.2f}] {x['text']}"
                  for x in _digest_lines(clip_words)]
         sheet = sheets.get(s["rel"]) if sheets else None
-        if not lines:
-            lines = ["(no speech)" + (f" contact sheet: {sheet}" if sheet else "")]
-        elif sheet:
-            lines.insert(0, f"(mostly visual) contact sheet: {sheet}")
+        notes = ["no speech" if not lines else "mostly visual" if s["rel"] in visual else ""]
+        if sheet:
+            notes.append(f"contact sheet: {sheet}")
+        note = "  ·  ".join(n for n in notes if n)
+        if note:
+            head += f"\n({note})"
         blocks.append(head + "\n" + "\n".join(lines))
         weights.append(max(1, len(clip_words)))
         offset = end

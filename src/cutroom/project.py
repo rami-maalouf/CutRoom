@@ -7,6 +7,11 @@
 #   edits.keeps  ranges that are never cut (rejects a proposed cut)
 #   selects      folders: the vlog, an ordered list of moments     (V1, V2, ...)
 #   shorts       short-form candidates                             (S1, S2, ...)
+#   style        "talking-head" or "vlog" (default: vlog for a folder)
+#
+# selects and shorts may carry "beat", "role" and "intent" (from the story) and
+# "raw": true, which plays the moment as it happened: no silence or retake
+# cuts inside it, only its edges and manual cuts.
 #
 # a range is {"clip": "<path inside the folder>", "start": s, "end": s} with
 # seconds inside that clip; for a single source "clip" is left out (and the
@@ -23,6 +28,9 @@ from pathlib import Path
 from .core import Range
 
 VERSION = 2
+# the kind of video: decides the defaults (see STYLE_DEFAULTS in cli.py) and
+# which instructions the agent follows (skills/cutroom/references/<style>.md)
+STYLES = ("talking-head", "vlog")
 
 
 def project_path(src: Path) -> Path:
@@ -41,6 +49,8 @@ def load(src: Path, clips: set[str] | None = None) -> dict:
     data.setdefault("edits", {})
     data["edits"].setdefault("cuts", [])
     data["edits"].setdefault("keeps", [])
+    # a folder of clips is a vlog; a single recording (or screen studio project) a talking head
+    data.setdefault("style", "vlog" if clips is not None else "talking-head")
     data.setdefault("selects", [])
     data.setdefault("shorts", [])
     validate(data, path, clips)
@@ -74,6 +84,11 @@ def validate(data: dict, path: Path, clips: set[str] | None) -> None:
         elif "clip" in r:
             sys.exit(f"{path.name}: {where} names a clip, but the source is a single file")
 
+    if data.get("style") not in STYLES:
+        sys.exit(f"{path.name}: style must be one of {', '.join(STYLES)}, got {data.get('style')!r}")
+    for item in data["selects"] + data["shorts"]:
+        if "raw" in item and not isinstance(item["raw"], bool):
+            sys.exit(f"{path.name}: {item.get('id')} \"raw\" must be true or false")
     for key in ("cuts", "keeps"):
         for item in data["edits"][key]:
             if isinstance(item, list) and len(item) < 2:

@@ -1,6 +1,6 @@
 [project]
 name = "cutroom"
-version = "0.4.0"
+version = "0.5.0"
 description = "Cut silences and retakes from talking recordings: Screen Studio projects and plain video files."
 readme = "README.md"
 requires-python = ">=3.11"

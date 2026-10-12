@@ -1,6 +1,8 @@
 # Editing core (every style)
 
-What makes a cut feel intelligent is not finding good moments. It is a story: every moment is there because of the one before it and earns the one after it. Work in this order and do not skip ahead.
+What makes a cut feel intelligent is not finding good moments. It is a story: every moment is there because of the one before it and earns the one after it.
+
+This file is the shared core. A talking-head **clean-up** ("process my latest video") only needs the read-through checklist and the shorts section; it has no story. Every **edit** (any vlog, any restructured talking head) follows the order of work below. Do not skip ahead.
 
 ## The order of work
 
@@ -60,6 +62,11 @@ A **beat** is a small sequence, not a quote: a setup (what we are about to see o
 - Do two neighbouring selects connect, or is there a jump nobody explains? Fix with an order change, a bridge line, or a chapter break.
 - Is anything said twice? Keep the better delivery.
 - `(NOTHING LEFT AFTER CUTS)` or `(empty)` on a select means automatic cuts removed it: make it raw, or fix its range.
+- **First and last words of every select:** a stray word from the previous sentence ("meeting but like this time...", "logs which is...") means the start sits inside a word. cutroom snaps outward to whole words, so move the start to the END time of that word.
+- **No early reveal:** the payoff of the video (a winner, a result) plays once, at its place in the story. A one-line tease in the hook is fine; a second reveal before the payoff is a spoiler, cut it.
+- **Chapter joins:** going from one place or time to another needs a bridge line ("we're about to go to the sponsor party") or the jump confuses.
+- **Picture-only items** must not carry speech: end them before anyone starts talking.
+- **Hook lines are raw:** a one-line flash-forward must play whole; silence cuts inside it ruin the joke.
 - Is the length inside the brief's target?
 
 ## Select schema

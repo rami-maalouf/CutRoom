@@ -13,3 +13,9 @@ Rules learned from the user's own feedback. They beat the general guidance in co
 - **Story over highlights.** The Hack the North recut built only from top-scored moments felt like a list. The earlier cut, built from a paper edit, felt like a story and was preferred. Always outline before selecting.
 - **Keep the process.** When Rami announced free AirPods for joining the workshop, he wanted to show himself not knowing what to say and talking to the person filming him. Fumbles, asides to the camera person and figuring it out on the spot are content in a vlog: select them, mark them `raw`.
 - **Show the side nobody sees.** Rami's vlogs document what it is like on his side (the sponsor table, the creator's process), not the event itself.
+
+## Confirmed on the Hack the North cut (2026-10-12: "pretty good", approved with edits to come)
+
+- The story-first structure: cold open on the premise line, a flash-forward of the weekend's best lines, title, chapters by day and place, an ending that answers "was it worth it?".
+- Process moments played raw: the megaphone sequence from handing the camera to a stranger to "we got four people".
+- Running threads: a gag planted early and paid off (the 3D printed logo), a person who returns (Ian), the hook's question answered at the end.

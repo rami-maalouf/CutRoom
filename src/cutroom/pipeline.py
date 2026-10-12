@@ -71,9 +71,14 @@ def _overlaps(a: tuple, ranges: list[tuple]) -> bool:
     return any(r[1] > a[0] and r[0] < a[1] for r in ranges)
 
 
-def plan_cuts(sessions: list[dict], args, cache: Path,
+def plan_cuts(sessions: list[dict], args, cache: Path | None,
               action_ms: list[float] | None = None,
-              edits: dict[str, list[Edit]] | None = None) -> Plan:
+              edits: dict[str, list[Edit]] | None = None,
+              scopes: list[Range] | None = None) -> Plan:
+    # scopes: when an editor has chosen moments (a folder's selects and shorts),
+    # a retake cut only applies if it lies completely inside one of them. in
+    # conversations short phrases repeat naturally ("there you go"), and a cut
+    # that crosses a chosen moment's edge would override the editor's choice.
     total_ms = sum(s["durationMs"] for s in sessions)
     plan = Plan(total_ms=total_ms)
     interactive = sys.stdin.isatty() and not args.yes
@@ -105,6 +110,12 @@ def plan_cuts(sessions: list[dict], args, cache: Path,
         retakes = find_retake_cuts(plan.sentences, args.window, args.threshold, args.pre_roll * 1000)
         for n, cut in enumerate(retakes, 1):
             cut["id"] = f"R{n}"
+        if scopes is not None:
+            inside = [c for c in retakes
+                      if any(a - 500 <= c["startMs"] and c["endMs"] <= b + 500 for a, b in scopes)]
+            if len(inside) < len(retakes):
+                print(f"retakes outside the chosen moments ignored: {len(retakes) - len(inside)}")
+            retakes = inside
         open_retakes = [c for c in retakes if not _overlaps((c["startMs"], c["endMs"]), keep_ranges)]
         print(f"proposed retake cuts: {len(retakes)}"
               + (f" ({len(retakes) - len(open_retakes)} rejected by keeps)" if len(open_retakes) < len(retakes) else ""))

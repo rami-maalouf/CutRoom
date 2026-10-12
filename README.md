@@ -118,6 +118,8 @@ cutroom export ~/Movies/weekend vlog S2               # cutroom/exports/weekend-
 
 The vlog is `selects` in the project file: an ordered list of moments `{"id": "V1", "clip": "cam/DJI_0051.MP4", "start": 12.3, "end": 40.1, "chapter": "Friday"}`. Choosing them is the agent's job (see the skill): parallel sub-agents read one digest shard each and propose scored candidates, and a lead edit orders the best into selects. CutRoom snaps every select to whole words, removes silences and retakes inside it, and exports the program as one FCPXML across all clips, with chapter markers. Times are anchored to clips, so adding a file to the folder never moves a decision. Without selects, the program is the whole clean footage.
 
+Two rules differ from single files. A retake cut only applies when it lies completely inside one select or short: in conversations short phrases repeat naturally, and a cut across a select's edge would override the editor's choice. And exports in `cutroom/exports/` are replaced on every export, because the project file can always make them again.
+
 ## Agent skill
 
 The repo ships an agent skill ([`skills/cutroom`](skills/cutroom/SKILL.md)) that tells Claude Code, Codex, Cursor and other agents when and how to run CutRoom. Install it once per machine:

@@ -166,7 +166,10 @@ def make_plan(path: Path, args) -> Job:
         print(f"project file: {project.project_path(src).name} ({len(edits['cuts'])} cuts, "
               f"{len(edits['keeps'])} keeps, {len(data['selects'])} selects, {len(data['shorts'])} shorts)")
     cache = None if kind == "folder" else src.with_suffix(".transcript.json")
-    plan = plan_cuts(sessions, args, cache, actions, edits)
+    scopes = None
+    if kind == "folder" and (data["selects"] or data["shorts"]):
+        scopes = [r for item in data["selects"] + data["shorts"] for r in project.segments(item, offsets)]
+    plan = plan_cuts(sessions, args, cache, actions, edits, scopes)
     if kind == "screenstudio":
         # respect the edit already made in screen studio: what it hides counts as cut
         shown = edited_ranges(src)
@@ -371,7 +374,10 @@ def run_export(args) -> None:
             render(job.src, [(r[0], r[1]) for r in ranges], dst)
             print(f"wrote: {dst}")
         else:
-            dst = versioned_output(job.exports / f"{job.stem}{tag}.fcpxml", job.src)
+            # folder exports live in cutroom/exports and are regenerated from the
+            # project file, so they are replaced; next to your own media nothing is
+            path = job.exports / f"{job.stem}{tag}.fcpxml"
+            dst = path if job.kind == "folder" else versioned_output(path, job.src)
             # a program range can cross a clip join; chapters go on its first piece
             segments, seg_chapters = [], {}
             for i, r in enumerate(ranges):

@@ -52,6 +52,8 @@ A folder (a shoot, an event weekend) is one source: `cutroom review <folder>`, `
 4. **Lead edit.** Run `cutroom candidates <folder>`: it checks every candidate (clip exists, range inside it) and prints the vlog length at each score threshold. `cutroom candidates <folder> --write-selects --min-score N` turns the candidates at or above N into selects in capture order, merging overlaps. Then read all candidates. Keep the best for pace and the target length, avoid saying the same thing twice, and order them as a story (capture order unless the brief says otherwise). Write them to `selects` as `V1, V2, ...` with a `chapter` on each (a new chapter value starts a chapter marker). Run `cutroom review <folder>`: it prints the program length. Adjust until the length fits.
 5. **Shorts.** From the selects, choose short candidates with the standalone gate (step 3 of the main workflow). In a folder a short is `{"id": "S1", "title", "why", "segments": [{"clip", "start", "end"}, ...]}`; segments may come from several clips.
 6. **Review page.** `cutroom review <folder> --open` writes `cutroom/review.html`: the vlog plays from the original files without rendering, by chapter, with Drop on every select, the retakes inside the selects, and the shorts. Feedback comes back as "Remove V7 ...", "Reject R2 ..." (a keep entry with its clip) and "Export S3 ...". Apply it to the project file and review again.
+Retake cuts in a folder only apply inside a select or short; check the few that remain under Cuts on the review page.
+
 7. **Export once.** `cutroom export <folder> vlog S3 S5` writes `cutroom/exports/<folder>-vlog.fcpxml` (all clips, chapter markers) and one FCPXML per short. Import into Final Cut Pro once.
 
 ## Choices

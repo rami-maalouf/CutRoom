@@ -153,3 +153,23 @@ def test_candidates_are_checked_merged_and_written_as_selects(shoot, capsys):
     assert [(s["id"], s["clip"], s["start"], s["end"]) for s in selects] == [
         ("V1", "phone/c.mov", 0.0, 1.9), ("V2", "cam/a.mp4", 0.0, 5.9)]
     assert selects[1]["title"] == "hello / welcome"
+
+
+def test_retake_crossing_a_select_edge_does_not_erase_it(shoot):
+    # "We build apps." at 0.1 s and again at 4.1 s look like a retake, but the
+    # editor chose 4-6 s and 0-2 s as separate moments: neither may vanish
+    write_transcript(shoot / "cutroom" / "transcripts" / "phone__c.mov.transcript.json",
+                     [(0.1, 0.5, "We"), (0.5, 0.9, "build"), (0.9, 1.3, "great"), (1.3, 1.9, "apps."),
+                      (4.1, 4.5, "We"), (4.5, 4.9, "build"), (4.9, 5.3, "great"), (5.3, 5.9, "apps.")])
+    save(shoot, selects=[{"id": "V1", "clip": "phone/c.mov", "start": 0.0, "end": 2.0},
+                         {"id": "V2", "clip": "phone/c.mov", "start": 4.0, "end": 6.0}])
+    main(["review", str(shoot)])
+    data = page_data(shoot)
+    assert all(s["keeps"] for s in data["selects"])
+    assert data["decisions"] == []
+    # one select spanning both takes keeps the retake cut inside it
+    save(shoot, selects=[{"id": "V1", "clip": "phone/c.mov", "start": 0.0, "end": 6.0}])
+    main(["review", str(shoot)])
+    data = page_data(shoot)
+    assert [d["id"] for d in data["decisions"]] == ["R1"]
+    assert data["selects"][0]["keeps"][0][0] >= 3.9

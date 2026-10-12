@@ -3,7 +3,8 @@ import json
 import pytest
 
 from cutroom import transcribe
-from cutroom.transcribe import CACHE_VERSION, load_cache, pick_backend
+from cutroom.transcribe import CACHE_VERSION, load_audio_16k, load_cache, pick_backend
+from conftest import make_audio, needs_ffmpeg
 
 
 def test_flag_beats_env_beats_platform_default(monkeypatch):
@@ -33,12 +34,8 @@ def test_cache_versions(tmp_path):
     assert load_cache(cache) == [{"word": "é"}]
 
 
+@needs_ffmpeg
 def test_audio_is_decoded_to_16k_mono_float_by_ffmpeg(tmp_path):
-    from conftest import make_audio, needs_ffmpeg
-    from cutroom.transcribe import load_audio_16k
-
-    if needs_ffmpeg.args[0]:
-        pytest.skip("ffmpeg not installed")
     samples = load_audio_16k(make_audio(tmp_path / "a.m4a", [("tone", 1), ("silence", 1)]))
     assert samples.dtype.name == "float32"
     assert abs(len(samples) - 32000) < 1600

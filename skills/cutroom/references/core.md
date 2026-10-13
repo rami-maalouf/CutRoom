@@ -122,7 +122,7 @@ Finding them, in this order:
 2. **The gate is a filter, not a score.** Read only the candidate's words: if the first sentence leans on something before it ("Because...", "And it came down to...", "Which also..."), or a name or "that thing" does work the clip never explains, move the start or drop it. The review page flags openings on a leaning word or mid-sentence, endings without a full stop, words that point to earlier in the video ("as I mentioned") and words that need the screen ("right here"), as "to check": fix every flag or say in `why` why it stays.
 3. **Short means short.** One idea, the hook in the first seconds, the payoff at the end. Most land at 30-90 s. A long story is not one short: take the 1-3 strongest stretches inside it as their own shorts (tag them `lift-out`).
 4. **Start and end on whole sentences.** Start at the first word of a sentence that works with no context; end on the payoff line, not on the "so yeah" after it. cutroom snaps to words; pick the right sentence.
-5. **Then score and rank.** `scores` out of 10 each for `hook`, `standalone`, `emotion`, `relatability`, `payoff`; `score` is the overall quality; `rank` is the review order (1 first), the best shorts first. Never let a criterion that is really a requirement (standalone) be averaged away.
+5. **Then score and rank.** `scores` out of 10 each for `hook`, `standalone`, `emotion`, `relatability`, `payoff` (an explainer scores `clarity` and `usefulness` instead of emotion and relatability); `score` is the overall quality; `rank` is the review order (1 first), the best shorts first. Never let a criterion that is really a requirement (standalone) be averaged away.
 6. **Theme every short** with one short name from the content ("Social anxiety", "Friendship", "Improv", "Travel", "Career"), the same name for the same theme, 4-8 themes in all, so the user can review one theme at a time.
 
 Store each one as:
@@ -134,6 +134,8 @@ Store each one as:
 ```
 
 (`start`/`end` instead of `segments` for one range of a single file; no `clip` for a single file.) Every field but `id` and the range is optional, but the review page sorts by `rank` and `score` and groups by `theme`, so fill them in for any set larger than a handful.
+
+**Out:** `cutroom export <source> S1 S4` (FCPXML). When the video was made in Screen Studio, add `--screenstudio <project>` (once per project) to also get `<project>-S1.screenstudio`, the project cut down to the short by its words (explainer.md has the details and the checks).
 
 The user reviews on the Shorts tab: a sortable list on the side, the chosen short under the player with its words and checks, P / M / X to pick, maybe or reject, a note per short. The copied feedback lists the picks to export, the maybes, the rejects to remove, and the notes ("S4: start 2 s later"). Apply notes to the ranges, remove rejects, keep ids stable for the rest, then re-run `cutroom review`.
 

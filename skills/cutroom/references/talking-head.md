@@ -1,6 +1,6 @@
 # Talking head
 
-One person, one recording (a talk to camera, a tutorial, a Screen Studio project, a podcast-style video). The words carry the video, so the work is **audio only**: no contact sheets, no frame grabs, no visual log. The picture is the same person throughout; reading it costs tokens and adds nothing. (Screen Studio recordings are the exception for one thing: cutroom protects clicks and keystrokes from silence cuts automatically.)
+One person, one recording (a talk to camera, a story, an interview, a podcast-style video). A recording that also demos or shows the screen is an **explainer**: follow these steps, plus explainer.md. The words carry the video, so the work is **audio only**: no contact sheets, no frame grabs, no visual log. The picture is the same person throughout; reading it costs tokens and adds nothing. (Screen Studio recordings are the exception for one thing: cutroom protects clicks and keystrokes from silence cuts automatically.)
 
 cutroom defaults for this style: `pacing balanced`, retake detection **on**. A repeated opening here is a mistake, not a story.
 

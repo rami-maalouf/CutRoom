@@ -1,6 +1,6 @@
 ---
 name: cutroom
-description: Edit real footage into a finished cut with the cutroom CLI - a talking-head recording (one take, a podcast-style video), an explainer (a demo or walkthrough that switches between camera, screen and live demos, like an Expo product video or a Screen Studio project) or a vlog (a folder of clips from a shoot or event). Quick clean-ups remove silences and retakes; full edits are story-first - transcripts (and for vlogs, contact sheets and a clip log) feed a story outline the user approves, the cut follows the story, and the user reviews on a page that plays the cut without rendering, then exports FCPXML, an mp4, a Screen Studio project, or short-form clips. Use when the user asks to clean up, cut, edit, tighten or "process" a recording, "remove the silences and repeats", make a vlog from a folder of clips, wants short-form clip ideas from a long video, says "export S3" / "take clip 5 for a short", reviews or iterates on a cut, or brings back an FCPXML edited in Final Cut.
+description: Edit real footage into a finished cut with the cutroom CLI - a talking-head recording (one take, a podcast-style video), an explainer (a demo or walkthrough that switches between camera, screen and live demos, like an Expo product video or a Screen Studio project) or a vlog (a folder of clips from a shoot or event). Quick clean-ups remove silences and retakes; full edits are story-first - transcripts (and for vlogs, contact sheets and a clip log) feed a story outline the user approves, the cut follows the story, and the user reviews on a page that plays the cut without rendering, then exports FCPXML, an mp4, a Screen Studio project, or short-form clips. Use when the user asks to clean up, cut, edit, tighten or "process" a recording, "remove the silences and repeats", make a vlog from a folder of clips, wants short-form clip ideas from a long video, says "export S3" / "take clip 5 for a short", reviews or iterates on a cut (also on a phone), wants a short as its own Screen Studio project, or brings back an FCPXML edited in Final Cut.
 ---
 
 # cutroom
@@ -27,7 +27,7 @@ Missing: `uv tool install git+https://github.com/rami-maalouf/CutRoom` (needs `u
 |---|---|---|
 | "process my latest video", "remove the silences and repeats", "clean this up" (talking head or explainer) | **clean-up** | no story: plan, check the judgment calls, write the clean cut. Minutes. |
 | "edit this", "make it tighter / better", "turn this into a video", any vlog, any reordering | **edit** | story-first, with the approval gate on the story. |
-| short-form clips | after either | shorts come from the finished cut |
+| short-form clips | after either | shorts come from the finished cut (core.md "Shorts"; for an explainer also explainer.md "Shorts") |
 | shorts from hours of footage that will never be one edit (a life story, a long podcast) | **shorts** | mined directly: [references/shorts.md](references/shorts.md) |
 
 Then read, in this order:
@@ -43,8 +43,9 @@ Unsure about the style (for example one long recording of an event) or the depth
 | Command | Does |
 |---|---|
 | `cutroom review <source> [--open]` | plans the cut and writes the review page: Story tab, the cut playing from the originals, judgment calls, shorts (sorted by `rank`/`score`, grouped by `theme`, with edge checks), transcript |
+| `cutroom review <source> --serve` | the same page on the user's phone over the local network: prints a URL and a QR code; **Send to agent** writes `feedback.md` |
 | `cutroom script <source> [--print]` | the read-through: the cut as a script in play order (" / " = a cut inside a moment) |
-| `cutroom video <file> [--export fcpxml\|mp4]` | talking head file: write the cut (follows `selects` if there are any) |
+| `cutroom video <file> [--export fcpxml\|mp4]` | a single video file: write the cut (follows `selects` if there are any) |
 | `cutroom project <pkg.screenstudio>` | Screen Studio: write `<name>-clean.screenstudio` (recorded order) |
 | `cutroom export <source> clean\|vlog\|S1\|V3 ...` | FCPXML (or `--format mp4`) of the whole program, a short, or one select |
 | `cutroom export <video> S2 --screenstudio <project>` | also cut the Screen Studio project the video came from down to that short, found by its words: `<project>-S2.screenstudio` (repeat `--screenstudio` for a video made from several projects) |

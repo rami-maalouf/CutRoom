@@ -27,6 +27,9 @@ def _spoken(words: list[dict], segments: list[tuple]) -> str:
 def _pickup(p: dict) -> list[str]:
     kind = "voiceover" if p.get("kind") == "voiceover" else "talking head"
     lines = [f"### {p['id']}  {kind} to record  ·  about {p.get('seconds', 20)} s", f"purpose: {p['purpose']}"]
+    if p.get("near") and not p.get("after"):
+        near = p["near"]
+        lines.append(f"near: {(near['clip'] + ' ') if 'clip' in near else ''}{_clock(near['time'])}")
     lines += [f"- {point}" for point in p.get("points", [])]
     if p.get("draft"):
         lines.append(f"draft (say it your way): {p['draft']}")

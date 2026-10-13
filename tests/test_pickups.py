@@ -28,7 +28,7 @@ def test_a_pickup_plays_after_its_select_in_the_read_through(shoot):
     save(shoot, selects=SELECTS, pickups=[
         CARD,
         {"id": "P2", "after": "start", "kind": "voiceover", "purpose": "who I am and why I do this"},
-        {"id": "P3", "purpose": "a story idea, not placed yet"},
+        {"id": "P3", "purpose": "a story idea, not placed yet", "near": {"clip": "cam/a.mp4", "time": 4.5}},
     ])
     main(["script", str(shoot)])
     text = (shoot / "cutroom" / "script.md").read_text(encoding="utf-8")
@@ -36,6 +36,7 @@ def test_a_pickup_plays_after_its_select_in_the_read_through(shoot):
     assert text.index("P2  voiceover to record") < text.index("### V1") < text.index("### P1  talking head")
     assert text.index("### P1") < text.index("### V2") < text.index("## To record, not placed yet") < text.index("### P3")
     assert "- skip is always allowed" in text
+    assert "near: cam/a.mp4 0:04.5" in text
 
 
 def test_the_review_page_and_the_vlog_export_carry_pickups(shoot):
@@ -75,6 +76,8 @@ def test_new_selects_unplace_pickups(shoot, capsys):
     ({"id": "P1", "purpose": "x", "kind": "interview"}, '"kind" must be one of'),
     ({"id": "P1", "purpose": "x", "seconds": 0}, '"seconds" must be a positive number'),
     ({"id": "P1", "purpose": "x", "points": "one"}, '"points" must be a list'),
+    ({"id": "P1", "purpose": "x", "near": {"clip": "cam/zzz.mp4", "time": 1}}, "which is not in the folder"),
+    ({"id": "P1", "purpose": "x", "near": {"clip": "cam/a.mp4"}}, '"near" must be'),
 ])
 def test_bad_pickups_are_clear_errors(shoot, pickup, error):
     save(shoot, selects=SELECTS, pickups=[pickup])

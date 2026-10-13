@@ -25,6 +25,8 @@
 # "kind": "talking-head" | "voiceover", "seconds": 20, "purpose": "...",
 # "points": ["..."], "draft": "..."}. "after" places it after a select ("start"
 # opens the video); without it the pickup is a suggestion not placed yet.
+# "near": {"clip": ..., "time": s} marks where in the raw footage it belongs
+# (no "clip" for a single source), so a suggestion shows before any selects.
 # once recorded, the new file becomes a select and the pickup is removed.
 # cutroom only stores, shows and exports selects, shorts and pickups; choosing
 # them is an editorial judgment made by an agent or a person.
@@ -140,6 +142,14 @@ def validate(data: dict, path: Path, clips: set[str] | None) -> None:
             sys.exit(f"{path.name}: {iid} \"kind\" must be one of {', '.join(PICKUP_KINDS)}")
         if "after" in item and item["after"] != "start" and item["after"] not in select_ids:
             sys.exit(f"{path.name}: {iid} goes after {item['after']!r}, which is not a select (or \"start\")")
+        if "near" in item:
+            near = item["near"]
+            if not (isinstance(near, dict) and isinstance(near.get("time"), (int, float)) and near["time"] >= 0):
+                sys.exit(f"{path.name}: {iid} \"near\" must be {{\"clip\": ..., \"time\": seconds}}, got {near!r}")
+            if clips is not None and near.get("clip") not in clips:
+                sys.exit(f"{path.name}: {iid} \"near\" names clip {near.get('clip')!r}, which is not in the folder")
+            if clips is None and "clip" in near:
+                sys.exit(f"{path.name}: {iid} \"near\" names a clip, but the source is a single file")
         seconds = item.get("seconds", 20)
         if not isinstance(seconds, (int, float)) or seconds <= 0:
             sys.exit(f"{path.name}: {iid} \"seconds\" must be a positive number, got {seconds!r}")

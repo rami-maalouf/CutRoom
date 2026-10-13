@@ -199,6 +199,7 @@ PAGE = r"""<!doctype html>
   .seg.program { color: #fff; font-size: 10px; font-weight: 600; padding-left: 4px; line-height: 22px;
                  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .seg.record { background: var(--record); border-radius: 2px; }
+  .seg.record-id { color: var(--record); font-size: 10px; font-weight: 700; line-height: 1; overflow: visible; }
   .seg.select-line { width: 1px !important; top: auto; height: 5px; background: rgba(255, 255, 255, .85); }
   .chapter { margin: 16px 2px 2px; font-size: 12px; font-weight: 600; color: var(--muted);
              text-transform: none; letter-spacing: .01em; }
@@ -482,6 +483,12 @@ const PICKUPS = D.pickups || [];
 const AFTER = {};
 PICKUPS.forEach((p) => { if (p.after) (AFTER[p.after] = AFTER[p.after] || []).push(p); });
 const placed = (p) => p.after === "start" || (p.after && D.selects.some((s) => s.id === p.after));
+// a suggestion not placed after a select yet can still point at the raw footage
+const nearTime = (p) => {
+  if (placed(p) || !p.near) return null;
+  const m = p.near.clip ? D.media.find((x) => x.name === p.near.clip) : D.media[0];
+  return m ? m.offset + p.near.time : null;
+};
 const pickupKind = (p) => p.kind === "voiceover" ? "Voiceover to record" : "Talking head to record";
 const slateEl = document.createElement("div");
 slateEl.className = "slate";
@@ -601,10 +608,20 @@ function drawMarks() {
     let acc = 0;
     const ends = {};
     D.program.forEach(([s, e, id]) => { acc += e - s; ends[id] = acc; });
-    PICKUPS.filter((p) => placed(p) && !dropped.has(p.id)).forEach((p) => {
-      const x = p.after === "start" ? 0 : ends[p.after];
+    const footageAxis = (t) => {
+      // a time inside a removed pause lands where the footage carries on
+      let a = 0;
+      for (const [s, e] of D.keeps) { if (t <= e) return a + Math.max(0, t - s); a += e - s; }
+      return a;
+    };
+    PICKUPS.filter((p) => !dropped.has(p.id) && (placed(p) || nearTime(p) !== null)).forEach((p) => {
+      const x = placed(p) ? (p.after === "start" ? 0 : ends[p.after]) : footageAxis(nearTime(p));
       // a bar through the chapters where the talking head goes in
-      if (x !== undefined) seg("lane-marks", x, x, "record", "", { width: "3px", marginLeft: "-1.5px", top: "-28px", bottom: "-2px" });
+      if (x !== undefined) {
+        seg("lane-marks", x, x, "record", "", { width: "3px", marginLeft: "-1.5px", top: "-28px", bottom: "-2px" });
+        // the label sits right of the bar, or left of it near the end of the timeline
+        seg("lane-marks", x, x, "record-id", p.id, { width: "auto", marginLeft: x > AX * 0.96 ? "-18px" : "3px", top: "-1px", bottom: "auto" });
+      }
     });
   } else {
     D.protectedRanges.forEach(([s, e]) => seg("lane-marks", s, e, "protect"));
@@ -655,7 +672,8 @@ $("copy").onclick = async () => {
 // ---------- side lists ----------
 function pickupCard(p) {
   const off = dropped.has(p.id);
-  const where = p.after === "start" ? "at the start" : placed(p) ? `after ${p.after}` : "suggested by the story, not placed yet";
+  const near = nearTime(p) !== null ? `near ${p.near.clip ? `${esc(p.near.clip)} ` : ""}${fmt(p.near.time)}` : "";
+  const where = p.after === "start" ? "at the start" : placed(p) ? `after ${p.after}` : near || "suggested by the story, not placed yet";
   return `
     <div class="item pickup ${off ? "dropped" : ""}">
       <div class="top"><span class="id">${p.id}</span><strong>${pickupKind(p)}</strong></div>
@@ -665,20 +683,26 @@ function pickupCard(p) {
       ${p.points && p.points.length ? `<ul>${p.points.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       ${p.draft ? `<p class="intent">Draft, say it your way: "${esc(p.draft)}"</p>` : ""}
       <div class="actions">
-        ${FOLDER && placed(p) && !NOVLOG ? `<button class="small" data-lead-in="${p.id}">Play where it goes</button>` : ""}
+        ${(FOLDER && placed(p) && !NOVLOG) || nearTime(p) !== null ? `<button class="small" data-lead-in="${p.id}">Play where it goes</button>` : ""}
         <button class="small ${off ? "on" : ""}" data-drop="${p.id}">${off ? "Dropped" : "Drop"}</button>
       </div>
     </div>`;
 }
 function recordView() {
   // the shot list: placed talking heads in play order, then the suggestions not placed yet
-  const order = (p) => p.after === "start" ? -1 : placed(p) ? D.selects.findIndex((s) => s.id === p.after) : 1e9;
+  const order = (p) => p.after === "start" ? -1 : placed(p) ? D.selects.findIndex((s) => s.id === p.after)
+    : nearTime(p) !== null ? 1e6 + nearTime(p) : 1e9;
   return [...PICKUPS].sort((a, b) => order(a) - order(b)).map(pickupCard).join("")
     + `<p class="tag" style="margin-top:12px">Record these in one sitting, put the files in the folder, and tell the agent:
        each recording becomes a select in its place and the pickup is removed.</p>`;
 }
 function leadIn(p) {
   // the last seconds before the talking head, its slate, the first seconds after it
+  const t = nearTime(p);
+  if (t !== null) {
+    mode = "check";
+    return playRanges([[Math.max(0, t - 6), t], [t, Math.min(D.durationSeconds, t + 4)]], `${p.id} near here`, new Map([[1, [p]]]));
+  }
   const at = p.after === "start" ? 0 : D.program.findLastIndex(([, , id]) => id === p.after) + 1;
   const before = at > 0 ? [[Math.max(D.program[at - 1][0], D.program[at - 1][1] - 6), D.program[at - 1][1]]] : [];
   const after = at < D.program.length ? [[D.program[at][0], Math.min(D.program[at][1], D.program[at][0] + 4)]] : [];

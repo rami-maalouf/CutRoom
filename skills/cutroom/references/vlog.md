@@ -55,7 +55,7 @@ Read the brief, all of `log.md` and the digest lines you need, yourself: this is
 - **Beats are sequences across clips:** setup -> process -> payoff. The process part is often `raw`.
 - **Running threads** make it feel written: a gag planted early and paid off later, a person who appears twice, a question the hook asks and the ending answers.
 - **Visual-only beats** (2-5 s) between talking moments give rhythm.
-- **Talking heads to record** (core.md): where a line from the creator would clarify a jump or deliver the brief's lesson. Write them to the story and to `cutroom.json` `pickups` (no `after` yet), so the review page lists them on the To record tab.
+- **Talking heads to record** (core.md): where a line from the creator would clarify a jump or deliver the brief's lesson. Write them to the story and to `cutroom.json` `pickups` (no `after` yet, but a `near` clip and time), so the review page marks them on the timeline and lists them on the To record tab.
 - **List what you leave out and why**, and **the facts only the user can confirm** (is this the same person? may we use this guest's line? the spelling of a name). Settle what the footage can settle yourself (compare contact sheets, read a slide).
 
 Run `cutroom review <folder> --open` and stop. The page opens on the Story tab; before selects exist its player says "All footage" (the whole shoot with pauses removed, not the cut).

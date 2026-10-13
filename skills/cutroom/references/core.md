@@ -51,7 +51,7 @@ Rules:
 - Never to repeat what the footage already shows or says. A pickup earns its place like any select.
 - 10-30 seconds each, about one per 2-3 minutes of video at most. The footage carries the video; talking heads clarify it.
 - Give the purpose and 2-4 talking points in the creator's terms. A `draft` line is optional and only a starting point: the creator says it in their own words. Never invent facts, feelings or opinions for them.
-- In the story phase, write them to the story and to `cutroom.json` as `pickups` without `after` (they show on the review page's To record tab). After selection, place each one with `"after": "V12"` (or `"start"`).
+- In the story phase, write them to the story and to `cutroom.json` as `pickups` without `after`, each with `"near": {"clip": ..., "time": s}` at the spot in the raw footage where it belongs (no `clip` for a single source). The review page then marks them on the All footage timeline and lists them on the To record tab. After selection, place each one with `"after": "V12"` (or `"start"`).
 - Once recorded: the new file goes into the folder (or is a new source for a talking head); make it a select in that place and remove the pickup.
 
 ```json

@@ -47,6 +47,7 @@ Unsure about the style (for example one long recording of an event) or the depth
 | `cutroom video <file> [--export fcpxml\|mp4]` | talking head file: write the cut (follows `selects` if there are any) |
 | `cutroom project <pkg.screenstudio>` | Screen Studio: write `<name>-clean.screenstudio` (recorded order) |
 | `cutroom export <source> clean\|vlog\|S1\|V3 ...` | FCPXML (or `--format mp4`) of the whole program, a short, or one select |
+| `cutroom export <video> S2 --screenstudio <project>` | also cut the Screen Studio project the video came from down to that short, found by its words: `<project>-S2.screenstudio` (repeat `--screenstudio` for a video made from several projects) |
 | `cutroom digest <folder> [--shards 5]` | vlog: transcribes every clip once, contact sheets for every clip, digest shards for parallel agents |
 | `cutroom candidates <folder> [--write-selects --story-order]` | vlog: checks agents' candidate files, writes them as selects in story order |
 | `cutroom frames <source> S1 V3 ...` | a grid of 8 frames over what each short or select plays (`<name>.frames/`), to see camera, screen or demo without watching |

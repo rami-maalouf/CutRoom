@@ -141,3 +141,33 @@ def test_frames_shows_what_a_short_plays(talk):
     main(["frames", str(talk), "S1", "--count", "4"])
     grid = talk.with_suffix(".frames") / "S1.jpg"
     assert grid.exists() and grid.stat().st_size > 1000
+
+
+@needs_ffmpeg
+def test_a_short_of_the_finished_video_becomes_a_cut_screen_studio_project(tmp_path):
+    # the recording: a retake of the opening, then the kept take and a second point
+    from conftest import make_screenstudio, slices
+    take = [("tone", 2), ("silence", 2), ("tone", 2), ("silence", 3), ("tone", 2)]
+    said = [(0.1, 0.5, "Today"), (0.5, 0.9, "we"), (0.9, 1.3, "build"), (1.3, 1.9, "apps."),
+            (4.1, 4.5, "Today"), (4.5, 4.9, "we"), (4.9, 5.3, "build"), (5.3, 5.9, "apps."),
+            (9.1, 10.9, "Second.")]
+    pkg = make_screenstudio(tmp_path, [take])
+    write_transcript(pkg.with_suffix(".transcript.json"), said)
+    # the finished video opens on a 3 s intro the project does not have, and the retake is gone
+    video = make_video(tmp_path / "final.mp4", [("silence", 3), ("tone", 2), ("silence", 1), ("tone", 2)])
+    write_transcript(video.with_suffix(".transcript.json"),
+                     [(3.1, 3.5, "Today"), (3.5, 3.9, "we"), (3.9, 4.3, "build"), (4.3, 4.9, "apps."), (6.1, 7.9, "Second.")])
+    project.save(video, {"v": 2, "style": "explainer", "edits": {"cuts": [], "keeps": []},
+                         "shorts": [{"id": "S1", "title": "the point", "raw": True, "start": 3.0, "end": 8.0}]})
+    main(["export", str(video), "S1", "--screenstudio", str(pkg)])
+    out = slices(tmp_path / "demo-S1.screenstudio")
+    # the kept take and the second point, not the retake at the start of the recording
+    assert out[0][0] >= 3900 and out[0][0] < 4100 and out[-1][1] >= 10900 and out[-1][1] < 11300
+    assert (tmp_path / "final-S1.fcpxml").exists()
+
+
+def test_a_short_that_is_not_in_the_project_stops_with_a_reason():
+    from cutroom.transfer import find_short
+    words = [{"startMs": i * 500.0, "endMs": i * 500.0 + 400, "word": w} for i, w in enumerate("one two three four".split())]
+    keeps, report = find_short([["seven", "eight", "nine"]], words, [])
+    assert keeps == [] and report[0]["matched"] == 0

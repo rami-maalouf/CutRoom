@@ -42,6 +42,14 @@ The rules in core.md ("Shorts") apply, plus:
 6. **A finished export is already paced by hand**, and screen motion fills its pauses: mark its shorts `"raw": true` so no second round of silence cuts runs inside them.
 7. **Product names:** spell them the way the company does in titles and notes. Whisper writes "ETE" for E2E, "argent" for Argent, "Expos" for Expo's.
 
+**A short as a Screen Studio project.** When the video was made in Screen Studio, a picked short can also become a Screen Studio project, so the user can restyle it there (vertical canvas, zooms):
+
+```bash
+cutroom export <final video> S2 --screenstudio e2e-1.screenstudio --screenstudio e2e-2.screenstudio
+```
+
+It finds the short's words in each project (the words its slices show; the whole recording if they are not there), takes the project that holds them, and writes `e2e-1-S2.screenstudio` next to it with only those parts, keeping the project's own slice edges, zooms and layout. The finished video's times do not matter: an intro added after Screen Studio, a trim in Final Cut, retakes still in the recording are all fine. It stops when under 90% of the words are found, when the short mixes two recordings, or when its pieces play out of recorded order (a project keeps recorded order). Check the result by ear: on TesterArmy S2 (19.4 s in the video) it wrote 3 slices, 19.5 s, the same sentences.
+
 Then check every edge by ear (shorts.md, step 6): in this style, Whisper often places a product name late ("Agent.act" was heard as "dot act" until the start moved 1 s earlier).
 
 ## Proven on

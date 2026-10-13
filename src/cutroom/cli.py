@@ -30,10 +30,11 @@ from .core import (Range, clean_segments, drop_hallucinated_words, invert_cuts, 
 from .fcpxml import read_keeps, write_fcpxml, write_timeline
 from .media import collect_silences, frame_strip, probe_video, render, require_ffmpeg, versioned_output
 from .pipeline import Plan, plan_cuts, write_report
-from .review import write_review
+from .review import short_data, write_review
 from .script import build_script, script_path
 from .screenstudio import action_times, check_package, edited_ranges, mic_sessions, write_cut_package
 from .transcribe import transcribe_sessions
+from .transfer import find_short
 
 
 def add_cut_options(ap: argparse.ArgumentParser) -> None:
@@ -425,9 +426,46 @@ def run_candidates(args) -> None:
     print(f"next: cutroom review {json.dumps(str(src))} --open")
 
 
+def export_to_screenstudio(job, item: dict, packages: list[Path], backend) -> None:
+    # the short, found by its words in the screen studio project it came from,
+    # becomes a new project with only that part: <project>-S2.screenstudio
+    if job.kind == "screenstudio":
+        return
+    words = job.plan.words or []
+    pieces = [[w for _, w in piece] for piece in
+              short_data(job, item, words, [w["startMs"] for w in words])["pieces"]]
+    total = sum(len(p) for p in pieces)
+    best = None
+    for pkg in packages:
+        pkg = pkg.resolve()
+        check_package(pkg)
+        sessions = mic_sessions(pkg)
+        found = transcribe_sessions(sessions, pkg.with_suffix(".transcript.json"), backend)
+        keeps, report = find_short(pieces, found, edited_ranges(pkg))
+        matched = sum(r["matched"] for r in report)
+        if best is None or matched > best[0]:
+            best = (matched, pkg, sessions, keeps, report)
+    matched, pkg, sessions, keeps, report = best
+    print(f"\n{item['id']} in {pkg.name}: {matched} of {total} words found")
+    for i, r in enumerate(report, 1):
+        span = f"{r['start'] / 1000:.2f}-{r['end'] / 1000:.2f}s, \"{r['first']}\" ... \"{r['last']}\"" if r["matched"] else "not found"
+        print(f"  piece {i}: {r['matched']}/{r['words']} words {r['where']}: {span}")
+    if not total or matched < 0.9 * total:
+        sys.exit(f"{item['id']}: under 90% of its words are in {pkg.name}: is it the right project? "
+                 "(a short made of two recordings cannot become one project)")
+    if any(b[0] < a[1] for a, b in zip(keeps, keeps[1:])):
+        sys.exit(f"{item['id']}: its pieces play out of recorded order, and a screen studio project keeps recorded order")
+    total_ms = sum(s["durationMs"] for s in sessions)
+    write_cut_package(pkg, invert_cuts(merge_ranges(keeps), total_ms), None, f"-{item['id']}")
+
+
 def run_export(args) -> None:
     args.yes = True
     job = make_plan(args.source, args)
+    if args.screenstudio:
+        for iid in args.ids:
+            if iid.lower() not in ("vlog", "clean"):
+                export_to_screenstudio(job, project.find(job.data, iid), args.screenstudio, args.backend)
     for iid in args.ids:
         if iid.lower() in ("vlog", "clean"):
             ranges, chapters, name, tag = job.program, job.chapters, f"{job.stem}", "-vlog"
@@ -614,6 +652,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--format", choices=["fcpxml", "mp4"], default="fcpxml",
                    help="video sources: fcpxml (no re-encode) or a rendered mp4; "
                         "screen studio sources always export a project")
+    p.add_argument("--screenstudio", type=Path, action="append", metavar="PROJECT",
+                   help="also cut this screen studio project (the one the video came from) down to each short "
+                        "or select, found by its words: <project>-S2.screenstudio. repeat it for a video made "
+                        "from several projects; each short goes to the project that holds its words")
     p.set_defaults(run=run_export)
 
     p = sub.add_parser("import", help="make a final cut pro timeline (exported xml) the edit")

@@ -52,6 +52,7 @@ cutroom export ~/Movies/weekend vlog S1 S2         # cutroom/exports/weekend-vlo
 
 # both
 cutroom export <source> clean|vlog|S3|V7           # FCPXML (or --format mp4) of the program, a short, a select
+cutroom export final.mov S2 --screenstudio e2e-1.screenstudio   # and e2e-1-S2.screenstudio: the project cut to that short
 cutroom import talk.mp4 edited-in-fcp.fcpxml       # a timeline edited by hand in Final Cut becomes the edit
 cutroom frames talk.mp4 S1 S3                      # a grid of frames over what each short plays: camera, screen or demo?
 cutroom transcribe talk.mp4                        # only the word-level transcript cache

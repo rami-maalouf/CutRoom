@@ -38,6 +38,10 @@ Story-first, following core.md's order of work. For a talking head:
 5. **Read-through:** `cutroom script <source>`, fix every checklist problem, then hand over the review page.
 6. **Write it:** `cutroom video <file> --yes --export fcpxml` follows the selects' order. A Screen Studio project cannot be reordered from outside: `cutroom project` keeps the selects' content in recorded order. For a reordered Screen Studio cut, export the project from Screen Studio first, then edit that video file.
 
+## Shorts from a long recording
+
+Hours of talking head that will never be one edit (a life story, a long podcast): mine the shorts directly, following [shorts.md](shorts.md): parallel agents by chapter with a checker, one judge for the ranking, an edge check by ear.
+
 ## Cutting rules
 
 - Retakes: keep the last complete take. Check every decision.

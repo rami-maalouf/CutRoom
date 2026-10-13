@@ -8,6 +8,11 @@ Rules learned from the user's own feedback. They beat the general guidance in co
 - **A strong intro.** Never open on logistics. Open on the premise, the stakes, or the best moment, and finish the hook in the first 30 seconds.
 - **No product pitch that sounds like an ad,** unless it is funny (the 30-second pitch challenge was funny, so it stayed).
 
+## Shorts
+
+- **30 seconds to 3 minutes (2026-10-12, my story).** Aim for 30-90 seconds. Go up to 3 minutes only when the point needs the depth to land (a story whose payoff needs its setup). A clip longer than 3 minutes is not a short: find the strongest part inside it, or split it.
+- **The v04 my-story picks failed as shorts.** As they played after the cleanup: 26 of 34 started mid-sentence or on words that need earlier context ("Which also, I forgot to talk about...", "So yeah, that was the peak experience. But another..."), 10 ended mid-sentence, and 12 were outside 30 seconds to 3 minutes. Read the first and last words that really play (after every cut) for every short, before it goes on the list.
+
 ## Vlogs
 
 - **Story over highlights.** The Hack the North recut built only from top-scored moments felt like a list. The earlier cut, built from a paper edit, felt like a story and was preferred. Always outline before selecting.

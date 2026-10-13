@@ -27,6 +27,7 @@ Missing: `uv tool install git+https://github.com/rami-maalouf/CutRoom` (needs `u
 | "process my latest video", "remove the silences and repeats", "clean this up" (talking head) | **clean-up** | no story: plan, check the judgment calls, write the clean cut. Minutes. |
 | "edit this", "make it tighter / better", "turn this into a video", any vlog, any reordering | **edit** | story-first, with the approval gate on the story. |
 | short-form clips | after either | shorts come from the finished cut |
+| shorts from hours of footage that will never be one edit (a life story, a long podcast) | **shorts** | mined directly: [references/shorts.md](references/shorts.md) |
 
 Then read, in this order:
 

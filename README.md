@@ -25,12 +25,12 @@ The first transcription downloads Whisper large-v3-turbo (about 1.6 GB). Both ba
 
 Every project has a `style` in its project file. It sets CutRoom's defaults and tells the agent which instructions to follow.
 
-| | `talking-head` (a single file, the default) | `vlog` (a folder, the default) |
-|---|---|---|
-| What the agent looks at | audio only: the words carry it | words and picture: a contact sheet and a clip log for every clip |
-| Retakes | detected and cut: a repeated opening is a mistake | off: fumbles and asides are part of the story (`--retakes` turns it on) |
-| Pacing | `balanced` | `relaxed`: only long pauses go |
-| Depth | a quick **clean-up** ("process my latest video"), or a story-first **edit** | always a story-first **edit** |
+| | `talking-head` (a single file, the default) | `explainer` (set it in the project file) | `vlog` (a folder, the default) |
+|---|---|---|---|
+| What the agent looks at | audio only: the words carry it | the words first, the picture where they point at it (`cutroom frames`) | words and picture: a contact sheet and a clip log for every clip |
+| Retakes | detected and cut: a repeated opening is a mistake | detected and cut; a re-demo can open differently, so the agent reads for it | off: fumbles and asides are part of the story (`--retakes` turns it on) |
+| Pacing | `balanced` | `balanced`; demo pauses that hold action stay (Screen Studio clicks and keystrokes are kept automatically) | `relaxed`: only long pauses go |
+| Depth | a quick **clean-up** ("process my latest video"), or a story-first **edit** | the same as a talking head | always a story-first **edit** |
 
 A story-first edit: a brief, then a story outline (`story.md`) that you approve on the review page's Story tab, then selects that fill the story's beats, then a read-through (`cutroom script`), then your review. Explicit flags always beat the style defaults.
 
@@ -53,6 +53,7 @@ cutroom export ~/Movies/weekend vlog S1 S2         # cutroom/exports/weekend-vlo
 # both
 cutroom export <source> clean|vlog|S3|V7           # FCPXML (or --format mp4) of the program, a short, a select
 cutroom import talk.mp4 edited-in-fcp.fcpxml       # a timeline edited by hand in Final Cut becomes the edit
+cutroom frames talk.mp4 S1 S3                      # a grid of frames over what each short plays: camera, screen or demo?
 cutroom transcribe talk.mp4                        # only the word-level transcript cache
 ```
 
@@ -130,7 +131,7 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
 - **Shorts**: built to review dozens of candidates fast.
   - The side list sorts by priority (`rank`), quality (`score`), length or recording order, groups by `theme`, and filters by status, theme and words.
   - Click a short (or press ↓) and it plays, clean, with its words under the player and the word being said marked. Click a word to play from there.
-  - Each short shows its edge checks ("opens on \"Because\"", "ends mid-sentence"), its scores and the agent's reason.
+  - Each short shows its edge checks ("opens on \"Because\"", "ends mid-sentence", "needs the screen", "points to earlier"), its scores and the agent's reason.
   - P, M and X pick, mark maybe or reject, then the next short plays. N writes a note ("start 2 s later"). V shows a 9:16 centre crop.
   - Decisions and notes stay in the browser after a reload, and go into the feedback text.
 - **Cuts**: each retake or manual cut with Play result, Play removed and Reject. **Transcript**: removed sentences struck through.

@@ -115,3 +115,29 @@ def test_a_talking_head_in_linked_files_reviews_as_an_edit_with_its_shorts(tmp_p
     data = json.loads(re.search(r'<script type="application/json" id="data">(.*?)</script>', html, re.S).group(1))
     assert data["style"] == "talking-head" and [m["name"] for m in data["media"]] == ["a.mp4", "b.mp4"]
     assert [[w for _, w in p] for p in data["shorts"][0]["pieces"]] == [["Rejection", "redirects."], ["Keep", "going."]]
+
+
+def test_pointer_flags_find_words_that_need_the_screen_or_earlier_context():
+    from cutroom.review import pointer_flags
+    words = lambda text: [[[i, w] for i, w in enumerate(text.split())]]
+    assert pointer_flags(words("So this diagram right here, as you can see, shows it.")) == [
+        'needs the screen: "this diagram"', 'needs the screen: "right here"', 'needs the screen: "as you can see"']
+    assert pointer_flags(words("Running on the cloud, as I showed you a few minutes ago.")) == [
+        'points to earlier: "as i showed"', 'points to earlier: "a few minutes ago"']
+    assert pointer_flags(words("Your tests run in the cloud.")) == []
+
+
+def test_explainer_is_a_style_with_the_talking_head_defaults(tmp_path):
+    from cutroom.cli import STYLE_DEFAULTS
+    assert STYLE_DEFAULTS["explainer"] == STYLE_DEFAULTS["talking-head"]
+    src = tmp_path / "demo.mp4"
+    project.save(src, {"v": 2, "style": "explainer", "edits": {"cuts": [], "keeps": []}})
+    assert project.load(src)["style"] == "explainer"
+
+
+@needs_ffmpeg
+def test_frames_shows_what_a_short_plays(talk):
+    write(talk, [{"id": "S1", "title": "two pieces", "segments": [{"start": 0.0, "end": 2.0}, {"start": 8.0, "end": 10.0}]}])
+    main(["frames", str(talk), "S1", "--count", "4"])
+    grid = talk.with_suffix(".frames") / "S1.jpg"
+    assert grid.exists() and grid.stat().st_size > 1000

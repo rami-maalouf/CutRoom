@@ -108,6 +108,30 @@ def edge_flags(pieces: list[list]) -> list[str]:
     return flags
 
 
+# phrases that only work with the picture, or with what was said earlier: fine
+# in the long video, a problem in a short (the standalone gate) or a reason to
+# keep the screen in it
+SCREEN_WORDS = ("right here", "over here", "as you can see", "you can see that", "look at this",
+                "look here", "on the screen", "on my screen", "this diagram", "this one right")
+EARLIER_WORDS = ("as i mentioned", "as i said", "like i said", "as i showed", "i showed you",
+                 "as you saw", "as we saw", "a few minutes ago", "earlier in this video", "i mentioned before")
+
+
+def pointer_flags(pieces: list[list]) -> list[str]:
+    # each place in the words is reported once, by the first phrase that covers it
+    text = " " + re.sub(r"\s+", " ", re.sub(r"[^\w' ]+", " ", " ".join(w for piece in pieces for _, w in piece).lower())) + " "
+    found = sorted((m.start(), m.end(), kind, phrase)
+                   for kind, phrases in (("needs the screen", SCREEN_WORDS), ("points to earlier", EARLIER_WORDS))
+                   for phrase in phrases for m in re.finditer(f" {re.escape(phrase)} ", text))
+    flags, until = [], -1
+    for start, end, kind, phrase in found:
+        flag = f'{kind}: "{phrase}"'
+        if start >= until - 1 and flag not in flags:
+            flags.append(flag)
+            until = end
+    return flags[:3]
+
+
 def played_words(words: list[dict], starts: list[float], lo: float, hi: float) -> list[int]:
     # indexes of the words heard in [lo, hi). after a pause whisper often starts
     # a word early, deep in the pause, though it is heard after it: the end is
@@ -131,7 +155,7 @@ def short_data(job, short: dict, words: list[dict], starts: list[float]) -> dict
         pieces.append([[round(words[i]["startMs"] / 1000, 2), words[i]["word"].strip()] for i in heard])
     return {**short, "where": _where(short), "keeps": [_secs(r) for r in keeps],
             "seconds": round(sum(e - s for s, e in keeps) / 1000, 2),
-            "pieces": pieces, "flags": edge_flags(pieces)}
+            "pieces": pieces, "flags": edge_flags(pieces) + pointer_flags(pieces)}
 
 
 def review_html(job, media_uri=None, served: bool = False) -> str:

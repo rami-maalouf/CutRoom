@@ -28,7 +28,7 @@ from . import __version__, folder, project
 from .core import (Range, clean_segments, drop_hallucinated_words, invert_cuts, merge_ranges,
                    resolve_pacing, snap_range, subtract_ranges)
 from .fcpxml import read_keeps, write_fcpxml, write_timeline
-from .media import collect_silences, probe_video, render, require_ffmpeg, versioned_output
+from .media import collect_silences, frame_strip, probe_video, render, require_ffmpeg, versioned_output
 from .pipeline import Plan, plan_cuts, write_report
 from .review import write_review
 from .script import build_script, script_path
@@ -38,7 +38,7 @@ from .transcribe import transcribe_sessions
 
 def add_cut_options(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--pacing", choices=["tight", "balanced", "relaxed"], default=None,
-                    help="how rigorous silence cutting is (default by style: talking-head balanced, vlog relaxed)")
+                    help="how rigorous silence cutting is (default by style: talking-head and explainer balanced, vlog relaxed)")
     ap.add_argument("--noise", type=float, default=-35.0, help="silence threshold in dB")
     ap.add_argument("--min-silence", type=float, default=None, help="min silence duration in seconds")
     ap.add_argument("--trail", type=float, default=None,
@@ -144,6 +144,10 @@ class Job:
 STYLE_DEFAULTS = {
     # one speaker, one take after another: a repeated opening is a mistake
     "talking-head": {"pacing": "balanced", "no_retakes": False},
+    # a talking head that also demos and shows the screen: the same cuts (screen
+    # studio keeps the pauses that hold a click or keystroke); what differs is
+    # what the agent checks (skills/cutroom/references/explainer.md)
+    "explainer": {"pacing": "balanced", "no_retakes": False},
     # real moments: fumbles and crosstalk are part of the story, and pauses
     # often hold action, so only long pauses go
     "vlog": {"pacing": "relaxed", "no_retakes": True},
@@ -494,6 +498,38 @@ def run_import(args) -> None:
           f"(replaced {before} earlier edits; short candidates kept)")
 
 
+def run_frames(args) -> None:
+    # what a short or select shows: frames spread over what plays, so an agent
+    # can see whether it is the camera, the screen or both without watching it
+    args.yes = True
+    job = make_plan(args.source, args)
+    if job.kind == "screenstudio":
+        sys.exit("a screen studio project has no picture cutroom can read: export it to a video first")
+    out = job.exports.parent / "frames" if job.kind == "folder" else job.src.with_suffix(".frames")
+    for iid in args.ids:
+        item = project.find(job.data, iid)
+        ranges = job.item_segments(item)
+        total = sum(e - s for s, e in ranges)
+        if not total:
+            print(f"{item['id']}: nothing plays")
+            continue
+        # n frames at the middle of n equal parts of what plays
+        times, points = [], []
+        for k in range(args.count):
+            x, acc = (k + 0.5) * total / args.count, 0.0
+            for s, e in ranges:
+                if x <= acc + (e - s):
+                    t = s + (x - acc)
+                    times.append(x / 1000)
+                    path, local, _, _ = (job.media_segments([(t, min(t + 40, e))]) or job.media_segments([(max(s, t - 40), t)]))[0]
+                    points.append((path, local / 1000))
+                    break
+                acc += e - s
+        dst = frame_strip(points, out / f"{item['id']}.jpg")
+        print(f"{item['id']}: {dst}")
+        print("  frames at " + ", ".join(f"{t:.0f}s" for t in times) + f" of {total / 1000:.0f}s, left to right, top to bottom")
+
+
 def run_transcribe(args) -> None:
     for media in args.media:
         src = media.resolve()
@@ -584,6 +620,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("video", type=Path)
     p.add_argument("timeline", type=Path, help="fcpxml exported from final cut pro (file > export xml)")
     p.set_defaults(run=run_import)
+
+    p = sub.add_parser("frames", help="a grid of frames over what a short or select plays, to see the picture")
+    p.add_argument("source", type=Path)
+    p.add_argument("ids", nargs="+", metavar="ID", help="S1, V3, ...")
+    p.add_argument("--count", type=int, default=8, help="frames per item (default 8)")
+    add_cut_options(p)
+    p.set_defaults(run=run_frames)
 
     p = sub.add_parser("transcribe", help="write <media>.transcript.json word timings")
     p.add_argument("media", type=Path, nargs="+")

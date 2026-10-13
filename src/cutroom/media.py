@@ -171,3 +171,22 @@ def versioned_output(base: Path, src: Path | None = None) -> Path:
         dst = base.with_name(f"{base.stem}-v{n}{base.suffix}")
         n += 1
     return dst
+
+
+def frame_strip(points: list[tuple[Path, float]], dst: Path, columns: int = 4) -> Path:
+    # one picture of several moments: a frame from each (file, seconds), in
+    # order, in a grid. each frame is a fast seek to the keyframe before it,
+    # which is close enough to see what is on screen
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda job: subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{job[1][1]:.3f}", "-i", str(job[1][0]),
+                 "-map", "0:v:0", "-frames:v", "1", "-vf", "scale=480:-2", str(Path(tmp) / f"{job[0]:03d}.jpg")],
+                check=True), enumerate(points)))
+        rows = -(-len(points) // columns)
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(Path(tmp) / "%03d.jpg"),
+             "-vf", f"tile={min(columns, len(points))}x{rows}:padding=4:color=white", "-frames:v", "1", str(dst)],
+            check=True)
+    return dst

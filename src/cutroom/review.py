@@ -376,7 +376,7 @@ PAGE = r"""<!doctype html>
                      padding: 7px 9px; font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); }
   .seg.short.active { background: var(--short); color: #fff; }
   /* the shorts tab keeps the decision in view: a shorter player, no colour legend */
-  body.shorts-tab video { width: auto; max-width: 100%; height: min(46vh, 560px); margin: 0 auto; }
+  @media (min-width: 701px) { body.shorts-tab video { width: auto; max-width: 100%; height: min(46vh, 560px); margin: 0 auto; } }
   body.shorts-tab .legend { display: none; }
   body.shorts-tab .timeline { height: 50px; margin-top: 10px; }
   .short-keys, #vertical { display: none !important; }
@@ -426,6 +426,16 @@ PAGE = r"""<!doctype html>
     /* scrolling to an item keeps it clear of the player and the feedback bar */
     html { scroll-padding-top: var(--player-h, 0px); scroll-padding-bottom: 72px; }
     body.served footer #copy { display: none; }
+  }
+  /* phones: the player stays pinned on top, so the chosen short keeps only what
+     a thumb needs there: its title, progress and the decision buttons */
+  @media (max-width: 700px) {
+    .detail { margin-top: 8px; padding: 8px 10px 0; }
+    .detail h2 { font-size: 15px; }
+    .detail .chips, .detail .scores, .detail p, .detail .words, .detail textarea { display: none; }
+    .decide { margin-top: 8px; }
+    .decide button { min-height: 38px; }
+    .decide button kbd { display: none; }
   }
   @media (pointer: coarse) { #stage, button, .timeline { touch-action: manipulation; -webkit-tap-highlight-color: transparent; } }
 </style>

@@ -1,6 +1,12 @@
 # CutRoom
 
-Edit real footage into a finished cut: a **talking head** (one recording, a Screen Studio project, a podcast-style video) or a **vlog** (a folder of clips from a shoot or an event). CutRoom removes silences and retakes, plays any cut on a review page without rendering, and exports Final Cut Pro / DaVinci Resolve timelines (FCPXML), mp4 files, cleaned Screen Studio projects and short-form clips.
+Edit real footage into a finished cut, and find the shorts inside it. Three kinds of video:
+
+- a **talking head**: one person talking (a talk to camera, a story, an interview, a podcast, hours of it in several files);
+- an **explainer**: one person teaching or demoing, switching between camera, screen (code, diagrams, dashboards) and live demos, often recorded in Screen Studio;
+- a **vlog**: a folder of clips from a shoot, a trip or an event.
+
+CutRoom removes silences and retakes, plays any cut on a review page without rendering (on a computer or a phone), and exports Final Cut Pro / DaVinci Resolve timelines (FCPXML), mp4 files, cleaned Screen Studio projects, and shorts as FCPXML or as their own Screen Studio project.
 
 The CLI is deterministic: the same footage, transcript and project file always give the same cut. The editorial judgment (which moments tell the story) comes from an AI agent following the bundled skill ([`skills/cutroom`](skills/cutroom/SKILL.md)), and from you on the review page.
 
@@ -37,7 +43,7 @@ A story-first edit: a brief, then a story outline (`story.md`) that you approve 
 ## Commands
 
 ```bash
-# talking head
+# talking head or explainer
 cutroom review talk.mp4 --open                     # plan the cut and open the review page
 cutroom script talk.mp4                            # read-through: the cut as a script
 cutroom video talk.mp4 --yes --export fcpxml       # talk-clean.fcpxml, no re-encode (follows selects)
@@ -50,7 +56,8 @@ cutroom candidates ~/Movies/weekend --write-selects --story-order   # agents' pi
 cutroom review ~/Movies/weekend --open             # the vlog by chapter, played from the original files
 cutroom export ~/Movies/weekend vlog S1 S2         # cutroom/exports/weekend-vlog.fcpxml and the shorts
 
-# both
+# every style
+cutroom review <source> --serve                    # the review page on your phone (url and qr code)
 cutroom export <source> clean|vlog|S3|V7           # FCPXML (or --format mp4) of the program, a short, a select
 cutroom export final.mov S2 --screenstudio e2e-1.screenstudio   # and e2e-1-S2.screenstudio: the project cut to that short
 cutroom import talk.mp4 edited-in-fcp.fcpxml       # a timeline edited by hand in Final Cut becomes the edit
@@ -84,7 +91,7 @@ Flags for every command that plans a cut:
 
 1. **Transcribe** locally, word by word, cached (`<name>.transcript.json`, or one per clip in `<folder>/cutroom/transcripts/`). Re-plans after the first take seconds.
 2. **Pauses**: ffmpeg's `silencedetect`, shaped by the pacing preset.
-3. **Retakes** (talking head): a later sentence (within 60 s) that opens with the same words replaces the earlier takes; restart phrases ("scratch that", "take two") cut their sentence. In a folder, a retake only applies when it lies completely inside one select or short.
+3. **Retakes** (talking head and explainer): a later sentence (within 60 s) that opens with the same words replaces the earlier takes; restart phrases ("scratch that", "take two") cut their sentence. In a folder, a retake only applies when it lies completely inside one select or short.
 4. **Screen actions** (Screen Studio): a pause that contains a click or keystroke stays on screen.
 5. **Cleanup**: words Whisper invented inside silence are dropped; tiny wordless fragments between cuts are absorbed.
 6. **Selects** (when the story chose moments): each is snapped to whole words with a little air, never past its own clip, and its clean parts play in the story's order. A select marked `"raw": true` plays exactly as recorded.
@@ -115,9 +122,10 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
 }
 ```
 
+- **style** is `talking-head`, `explainer` or `vlog` (see above). Set it before the first command: a folder defaults to `vlog`, a single file to `talking-head`.
 - **edits.cuts** become manual decisions `M1`, `M2`, ...; **edits.keeps** are never cut (a keep overlapping a retake rejects it).
 - **selects** (`V1`...) are the program in play order, with the story's `chapter`, `beat`, `role` and `intent`. Without selects, the program is the clean cut in recorded order.
-- **shorts** (`S1`...) are short-form candidates, exported from the clean cut. Optional `theme`, `rank` (1 = review first), `score` (0-10), `scores` (`{"hook": 8, ...}`) and `tags` drive the Shorts tab; see [core.md](skills/cutroom/references/core.md#shorts) for how to find good ones.
+- **shorts** (`S1`...) are short-form candidates, exported from the clean cut (`"raw": true` plays a short exactly as recorded: right for a finished export, already paced by hand). Optional `theme`, `rank` (1 = review first), `score` (0-10), `scores` (`{"hook": 8, ...}`) and `tags` drive the Shorts tab; see [core.md](skills/cutroom/references/core.md#shorts) for how to find good ones.
 - **pickups** (`P1`...) are talking heads still to record: `{"id": "P1", "after": "V12", "kind": "talking-head", "seconds": 20, "purpose": "...", "points": ["..."]}`. The agent proposes one where the footage cannot explain itself (a jump with no bridge, missing context, the lesson the brief wants). `after` places it after a select (`"start"` opens the video); before selects exist, `"near": {"clip": ..., "time": s}` marks where in the raw footage it belongs. Once recorded, the file becomes a select.
 - **ignore** (folders) lists patterns for files that are not footage, such as `["*-bad-quality.mp4"]` for a lower-quality copy of a clip. They match the path inside the folder. DJI `.LRF` proxies and photos are skipped anyway (only `.mp4`, `.mov`, `.m4v`, `.mkv` and `.mts` are clips).
 - For a single file, leave out `clip` (and the short list form `[start, end, note]` still works).
@@ -127,9 +135,9 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
 `cutroom review <source> --open` writes one small self-contained page (`<name>.review.html`, or `<folder>/cutroom/review.html`). It plays the original media and skips the cut ranges, so reviewing costs no render and no new media; 4K HEVC plays directly in Safari and Chromium on a Mac.
 
 - **Story**: the outline to approve before any selection.
-- **Vlog / Clean cut**: the program with a timeline (chapters, retake marks, short marks); each select with Play and Drop, its beat, role, intent and a `raw` tag.
+- **Vlog / Edit / Clean cut**: the program (Edit for a talking head made of several files) with a timeline (chapters, retake marks, short marks); each select with Play and Drop, its beat, role, intent and a `raw` tag.
 - **To record**: the talking heads to record, as a shot list with each one's purpose, talking points and length; Play where it goes plays the seconds around it. In the Vlog list each one sits after its select, the timeline marks it, and playback shows a 3-second slate in its place.
-- **Shorts**: built to review dozens of candidates fast.
+- **Shorts**: built to review dozens of candidates fast. The page opens on it when shorts are the job.
   - The side list sorts by priority (`rank`), quality (`score`), length or recording order, groups by `theme`, and filters by status, theme and words.
   - Click a short (or press ↓) and it plays, clean, with its words under the player and the word being said marked. Click a word to play from there.
   - Each short shows its edge checks ("opens on \"Because\"", "ends mid-sentence", "needs the screen", "points to earlier"), its scores and the agent's reason.
@@ -147,6 +155,15 @@ If you then edit by hand in Final Cut Pro and want the agent to continue from th
 
 Why iterate here and not in Final Cut: every FCPXML import creates a new project, and Final Cut can copy the media into the library (one measured library held 43.9 GB of copied source files). Import once, at the end.
 
+## Shorts
+
+A short is a moment that stands on its own: no word in it points at something outside it. The agent finds them, CutRoom stores, checks, plays and exports them, and you pick them on the Shorts tab. The rules for a good short are in [`core.md`](skills/cutroom/references/core.md#shorts).
+
+- **From a finished cut** (a talking head, an explainer, a vlog): the agent reads the transcript, writes candidates under `shorts` with a title, a reason, a theme, scores and a rank, and checks every edge by ear.
+- **From hours of recording that will never be one edit** (a life story in 14 files): link the files into one folder, set `"style": "talking-head"`, and follow [`shorts.md`](skills/cutroom/references/shorts.md): chapter agents with a checker, one judge across all of them, an edge check by ear. The first run turned 4 hours into 83 ranked candidates.
+- **From an explainer**: the words are not enough. `cutroom frames <source> S1 S2` shows a grid of frames over each short, the edge checks flag words that need the screen ("right here") or earlier context ("as I mentioned"), and each short is tagged `camera`, `screen` or `mixed` for its vertical version. See [`explainer.md`](skills/cutroom/references/explainer.md).
+- **Out**: `cutroom export <source> S1 S4` writes FCPXML (or `--format mp4`). When the video was made in Screen Studio, `--screenstudio <project>` also writes `<project>-S1.screenstudio`: the project cut down to that short, found by its words, so the time codes of the finished video do not matter (an intro added later, a Final Cut trim, retakes still in the recording). Give `--screenstudio` once per project for a video made from several.
+
 ## A vlog from a folder of clips
 
 Clips sit on one timeline in capture order (iPhone creation date, then the file's `creation_time`, then its modified time). The full procedure, with the agent prompts that worked, is in [`skills/cutroom/references/vlog.md`](skills/cutroom/references/vlog.md). In short:
@@ -163,6 +180,7 @@ CutRoom stops at files. These happen in GUI apps, done by a person or a computer
 |---|---|---|
 | Review the cut | `open <path>/review.html`, or on a phone `cutroom review <source> --serve` | cuts land between sentences; each retake keeps the full final take; the story flows; shorts stand on their own |
 | See a cut Screen Studio project | `open -a "Screen Studio" demo-clean.screenstudio` | protected pauses show the click or typing |
+| Check a short's Screen Studio project | `open -a "Screen Studio" e2e-1-S2.screenstudio` | it opens and closes on the short's first and last sentence; zooms and layout came along |
 | Export from Screen Studio | Screen Studio's Export button | Screen Studio has no command-line export |
 | Import into Final Cut Pro, once | File > Import > XML | media links in place (set Final Cut to leave files in place); mute the clips the agent flagged for room music |
 | Import into DaVinci Resolve | File > Import > Timeline | Resolve reads the same FCPXML |
@@ -174,6 +192,9 @@ CutRoom stops at files. These happen in GUI apps, done by a person or a computer
 - Filler words ("um", "uh") are not removed, and a stumble inside a sentence with no pause is not detected.
 - Music playing in the room stays in the audio; mute it in your editor.
 - A folder exports FCPXML only (no mp4 render). A Screen Studio project keeps recorded order.
+- A short becomes a Screen Studio project only when 90% of its words are in one recording, in recorded order. A short that joins two recordings (an opening from one, an ending from another) stays an FCPXML.
+- `cutroom frames` reads video files; a Screen Studio project's picture is only visible in Screen Studio.
+- The edge checks read Whisper's words: they are hints. Only listening settles an edge (see `shorts.md`, step 6).
 - The review page plays what the browser decodes: on a Mac, Safari and Chromium play H.264 and HEVC; ProRes plays in Safari.
 - Protected screen actions keep their pauses, so a click-heavy demo is longer than with `--no-protect-actions`. Mouse movement alone does not protect a pause.
 - Silence detection is energy based (`--noise`, default -35 dB). A noisy room may need `--noise -30`.

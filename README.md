@@ -115,7 +115,7 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
 
 - **edits.cuts** become manual decisions `M1`, `M2`, ...; **edits.keeps** are never cut (a keep overlapping a retake rejects it).
 - **selects** (`V1`...) are the program in play order, with the story's `chapter`, `beat`, `role` and `intent`. Without selects, the program is the clean cut in recorded order.
-- **shorts** (`S1`...) are short-form candidates, exported from the clean cut.
+- **shorts** (`S1`...) are short-form candidates, exported from the clean cut. Optional `theme`, `rank` (1 = review first), `score` (0-10), `scores` (`{"hook": 8, ...}`) and `tags` drive the Shorts tab; see [core.md](skills/cutroom/references/core.md#shorts) for how to find good ones.
 - **pickups** (`P1`...) are talking heads still to record: `{"id": "P1", "after": "V12", "kind": "talking-head", "seconds": 20, "purpose": "...", "points": ["..."]}`. The agent proposes one where the footage cannot explain itself (a jump with no bridge, missing context, the lesson the brief wants). `after` places it after a select (`"start"` opens the video); before selects exist, `"near": {"clip": ..., "time": s}` marks where in the raw footage it belongs. Once recorded, the file becomes a select.
 - **ignore** (folders) lists patterns for files that are not footage, such as `["*-bad-quality.mp4"]` for a lower-quality copy of a clip. They match the path inside the folder. DJI `.LRF` proxies and photos are skipped anyway (only `.mp4`, `.mov`, `.m4v`, `.mkv` and `.mts` are clips).
 - For a single file, leave out `clip` (and the short list form `[start, end, note]` still works).
@@ -127,8 +127,14 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
 - **Story**: the outline to approve before any selection.
 - **Vlog / Clean cut**: the program with a timeline (chapters, retake marks, short marks); each select with Play and Drop, its beat, role, intent and a `raw` tag.
 - **To record**: the talking heads to record, as a shot list with each one's purpose, talking points and length; Play where it goes plays the seconds around it. In the Vlog list each one sits after its select, the timeline marks it, and playback shows a 3-second slate in its place.
-- **Shorts**: Play clean and Pick. **Cuts**: each retake or manual cut with Play result, Play removed and Reject. **Transcript**: removed sentences struck through.
-- **Feedback**: toggle Drop (a select or a talking head), Reject and Pick, press Copy, paste to the agent. It edits the project file and re-plans in seconds.
+- **Shorts**: built to review dozens of candidates fast.
+  - The side list sorts by priority (`rank`), quality (`score`), length or recording order, groups by `theme`, and filters by status, theme and words.
+  - Click a short (or press ↓) and it plays, clean, with its words under the player and the word being said marked. Click a word to play from there.
+  - Each short shows its edge checks ("opens on \"Because\"", "ends mid-sentence"), its scores and the agent's reason.
+  - P, M and X pick, mark maybe or reject, then the next short plays. N writes a note ("start 2 s later"). V shows a 9:16 centre crop.
+  - Decisions and notes stay in the browser after a reload, and go into the feedback text.
+- **Cuts**: each retake or manual cut with Play result, Play removed and Reject. **Transcript**: removed sentences struck through.
+- **Feedback**: toggle Drop (a select or a talking head) and Reject, decide on shorts, press Copy, paste to the agent. It edits the project file and re-plans in seconds.
 - **Player keys, as on YouTube**: Space or K plays and pauses, ← → skip 5 s, J L skip 10 s, < > change the speed (1x, 1.5x, 2x; the page remembers it). On the clean cut or the vlog, a skip moves through what plays, so removed ranges never count.
 
 Before a vlog has selects, the player is labelled "All footage": it plays the whole shoot with pauses removed, not a cut.

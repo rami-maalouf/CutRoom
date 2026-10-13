@@ -114,4 +114,26 @@ The review page shows each one on its To record tab (a shot list), in the Vlog l
 
 ## Shorts
 
-A short must stand alone: no load-bearing word ("this", "as I said", "for example") may point outside it. Cut it from the finished story, not from raw footage. A short is often one beat (setup + payoff) from the long cut. Title it in the speaker's own words, no hype phrasing. Store it as `{"id": "S1", "title", "why", "segments": [...]}` (or `start`/`end` for a single file).
+A short must stand alone: no load-bearing word ("this", "as I said", "for example") may point outside it. Cut it from the finished cut when there is one; a long recording that will never be edited as a whole (a 4-hour life story) can be mined directly. Title it in the speaker's own words, no hype phrasing.
+
+Finding them, in this order:
+
+1. **Verbatim first.** Read the exact words of every candidate (the transcript, or `cutroom script`), never a summary of them. The strong picks are the passages already well said out loud.
+2. **The gate is a filter, not a score.** Read only the candidate's words: if the first sentence leans on something before it ("Because...", "And it came down to...", "Which also..."), or a name or "that thing" does work the clip never explains, move the start or drop it. The review page flags openings on a leaning word or mid-sentence, and endings without a full stop, as "to check": fix every flag or say in `why` why it stays.
+3. **Short means short.** One idea, the hook in the first seconds, the payoff at the end. Most land at 30-90 s. A long story is not one short: take the 1-3 strongest stretches inside it as their own shorts (tag them `lift-out`).
+4. **Start and end on whole sentences.** Start at the first word of a sentence that works with no context; end on the payoff line, not on the "so yeah" after it. cutroom snaps to words; pick the right sentence.
+5. **Then score and rank.** `scores` out of 10 each for `hook`, `standalone`, `emotion`, `relatability`, `payoff`; `score` is the overall quality; `rank` is the review order (1 first), the best shorts first. Never let a criterion that is really a requirement (standalone) be averaged away.
+6. **Theme every short** with one short name from the content ("Social anxiety", "Friendship", "Improv", "Travel", "Career"), the same name for the same theme, 4-8 themes in all, so the user can review one theme at a time.
+
+Store each one as:
+
+```json
+{"id": "S1", "title": "The only way to lose is to stop", "why": "one idea, opens on the line itself, ends on the payoff",
+ "theme": "Failure", "rank": 1, "score": 8.4, "scores": {"hook": 9, "standalone": 9, "emotion": 8, "relatability": 8, "payoff": 8},
+ "tags": ["lift-out"], "segments": [{"clip": "c10.mp4", "start": 41.2, "end": 128.8}]}
+```
+
+(`start`/`end` instead of `segments` for one range of a single file; no `clip` for a single file.) Every field but `id` and the range is optional, but the review page sorts by `rank` and `score` and groups by `theme`, so fill them in for any set larger than a handful.
+
+The user reviews on the Shorts tab: a sortable list on the side, the chosen short under the player with its words and checks, P / M / X to pick, maybe or reject, a note per short. The copied feedback lists the picks to export, the maybes, the rejects to remove, and the notes ("S4: start 2 s later"). Apply notes to the ranges, remove rejects, keep ids stable for the rest, then re-run `cutroom review`.
+

@@ -40,7 +40,7 @@ Unsure about the style (for example one long recording of an event) or the depth
 
 | Command | Does |
 |---|---|
-| `cutroom review <source> [--open]` | plans the cut and writes the review page: Story tab, the cut playing from the originals, judgment calls, shorts, transcript |
+| `cutroom review <source> [--open]` | plans the cut and writes the review page: Story tab, the cut playing from the originals, judgment calls, shorts (sorted by `rank`/`score`, grouped by `theme`, with edge checks), transcript |
 | `cutroom script <source> [--print]` | the read-through: the cut as a script in play order (" / " = a cut inside a moment) |
 | `cutroom video <file> [--export fcpxml\|mp4]` | talking head file: write the cut (follows `selects` if there are any) |
 | `cutroom project <pkg.screenstudio>` | Screen Studio: write `<name>-clean.screenstudio` (recorded order) |

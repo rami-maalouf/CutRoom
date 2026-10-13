@@ -17,6 +17,10 @@
 # "raw": true, which plays the moment as it happened: no silence or retake
 # cuts inside it, only its edges and manual cuts.
 #
+# shorts may also carry what the review page sorts and groups them by:
+# "theme" (text), "rank" (1 = review first), "score" (0-10, overall quality),
+# "scores" ({"hook": 8, "standalone": 9, ...}, each 0-10) and "tags" (["v04"]).
+#
 # a range is {"clip": "<path inside the folder>", "start": s, "end": s} with
 # seconds inside that clip; for a single source "clip" is left out (and the
 # short list form [start, end, note] still works). anchoring times to clips
@@ -43,7 +47,7 @@ VERSION = 2
 # which instructions the agent follows (skills/cutroom/references/<style>.md)
 STYLES = ("talking-head", "vlog")
 # free text on selects and shorts: shown on the review page and in the read-through
-TEXT_FIELDS = ("chapter", "beat", "role", "intent", "title", "why")
+TEXT_FIELDS = ("chapter", "beat", "role", "intent", "title", "why", "theme")
 PICKUP_KINDS = ("talking-head", "voiceover")
 
 
@@ -124,6 +128,8 @@ def validate(data: dict, path: Path, clips: set[str] | None) -> None:
         for key in TEXT_FIELDS:
             if key in item and not isinstance(item[key], str):
                 sys.exit(f"{path.name}: {item.get('id')} \"{key}\" must be text, got {item[key]!r}")
+    for item in data["shorts"]:
+        check_short_review(item, path)
     for key in ("cuts", "keeps"):
         for item in data["edits"][key]:
             if isinstance(item, list) and len(item) < 2:
@@ -168,6 +174,26 @@ def validate(data: dict, path: Path, clips: set[str] | None) -> None:
             ids.add(iid)
             for seg in item.get("segments") or [item]:
                 check_range(seg, f"{key} {iid}")
+
+
+def _score(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 10
+
+
+def check_short_review(item: dict, path: Path) -> None:
+    # the fields the review page sorts, groups and shows shorts by
+    iid = item.get("id")
+    rank = item.get("rank", 1)
+    if not (isinstance(rank, int) and not isinstance(rank, bool) and rank >= 1):
+        sys.exit(f"{path.name}: {iid} \"rank\" must be a whole number from 1 (review first), got {rank!r}")
+    if "score" in item and not _score(item["score"]):
+        sys.exit(f"{path.name}: {iid} \"score\" must be a number from 0 to 10, got {item['score']!r}")
+    scores = item.get("scores", {})
+    if not (isinstance(scores, dict) and all(isinstance(k, str) and _score(v) for k, v in scores.items())):
+        sys.exit(f"{path.name}: {iid} \"scores\" must look like {{\"hook\": 8, \"payoff\": 7}} (0-10 each), got {scores!r}")
+    tags = item.get("tags", [])
+    if not (isinstance(tags, list) and all(isinstance(x, str) for x in tags)):
+        sys.exit(f"{path.name}: {iid} \"tags\" must be a list of text, got {tags!r}")
 
 
 def _ms(r: dict, offsets: dict[str, float] | None) -> Range:

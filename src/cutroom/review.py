@@ -6,6 +6,7 @@
 # for a folder of clips the page shows the vlog: the selects in order, by chapter.
 
 import json
+from bisect import bisect_left
 from pathlib import Path
 
 import html
@@ -81,6 +82,47 @@ def markdown(text: str) -> str:
     return "\n".join(out)
 
 
+# opening words that lean on something said before the short starts
+LEANING = {"and", "but", "so", "because", "which", "also", "then", "or", "yeah", "anyway",
+           "it", "this", "that", "these", "those", "they", "he", "she"}
+
+
+def edge_flags(pieces: list[list]) -> list[str]:
+    # what to check at a short's edges (the standalone gate starts here): an
+    # opening that leans on what came before, an ending cut off mid-sentence.
+    # hints, not verdicts: a transcript without punctuation trips the ending check
+    words = [w for piece in pieces for _, w in piece]
+    if not words:
+        return []
+    flags = []
+    first, last = words[0], words[-1]
+    if re.sub(r"[^\w']", "", first).lower() in LEANING:
+        flags.append(f'opens on "{first.strip(",.;:")}"')
+    elif first[:1].islower():
+        flags.append(f'starts mid-sentence: "{first}"')
+    if not last.endswith((".", "?", "!")):
+        flags.append(f'ends mid-sentence: "...{last}"')
+    return flags
+
+
+def short_data(job, short: dict, words: list[dict], starts: list[float]) -> dict:
+    # the short as the page needs it: the ranges that play, and its words in
+    # them, one list per piece (a piece is one segment of the project file)
+    keeps = job.item_segments(short)
+    pieces = []
+    for a, b in project.segments(short, job.offsets):
+        piece = []
+        for s, e in keeps:
+            lo, hi = max(s, a), min(e, b)
+            if hi > lo:
+                piece += [[round(w["startMs"] / 1000, 2), w["word"].strip()]
+                          for w in words[bisect_left(starts, lo):bisect_left(starts, hi)]]
+        pieces.append(piece)
+    return {**short, "where": _where(short), "keeps": [_secs(r) for r in keeps],
+            "seconds": round(sum(e - s for s, e in keeps) / 1000, 2),
+            "pieces": pieces, "flags": edge_flags(pieces)}
+
+
 def review_html(job, media_uri=None, served: bool = False) -> str:
     # media_uri(i, path) gives each file's address: file:// for the page on
     # disk, a url on the local network when `cutroom review --serve` sends it
@@ -100,9 +142,10 @@ def review_html(job, media_uri=None, served: bool = False) -> str:
         media=media,
         projectFile=proj.relative_to(job.src).as_posix() if job.kind == "folder" else proj.name,
         exportCommand=f"cutroom export {json.dumps(str(job.src))}",
-        shorts=[{**s, "where": _where(s), "keeps": [_secs(r) for r in job.item_segments(s)]}
-                for s in job.data["shorts"]],
     )
+    words = plan.words or []
+    starts = [w["startMs"] for w in words]
+    data["shorts"] = [short_data(job, s, words, starts) for s in job.data["shorts"]]
     data["style"] = job.data["style"]
     data["served"] = served
     data["pickups"] = job.data["pickups"]
@@ -261,7 +304,6 @@ PAGE = r"""<!doctype html>
   .tabs button.on { background: var(--bg); color: var(--ink); border-radius: 8px; }
   .list { overflow-y: auto; padding: 8px 10px 12px; }
   .item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
-  .item.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .item .top { display: flex; align-items: baseline; gap: 8px; }
   .id { font-weight: 700; }
   .tag { font-size: 11px; color: var(--muted); }
@@ -277,6 +319,74 @@ PAGE = r"""<!doctype html>
   footer .row { display: flex; align-items: center; gap: 10px; }
   footer textarea { width: 100%; height: 84px; margin-top: 8px; resize: vertical; border: 1px solid var(--line);
                     border-radius: 8px; padding: 8px; font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--ink); background: var(--bg); }
+  /* shorts review: the list on the side sorts, groups and filters; the chosen short
+     shows under the player with its words, checks and the decision buttons */
+  .short-head { position: sticky; top: -8px; z-index: 2; background: var(--panel); margin: -8px -10px 0; padding: 10px 10px 6px;
+                border-bottom: 1px solid var(--line); }
+  .short-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .short-tools select, .short-tools input { font: inherit; font-size: 12px; color: var(--ink); background: var(--button);
+                                            border: 1px solid var(--line); border-radius: 8px; padding: 4px 7px; }
+  .short-tools input[type=search] { flex: 1 1 100%; min-width: 0; }
+  .short-tools label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; }
+  .short-tools input[type=checkbox] { margin: 0; }
+  .themes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+  .theme { --h: 220; display: inline-block; font-size: 11px; line-height: 17px; padding: 0 8px; border-radius: 999px; border: none;
+           color: hsl(var(--h) 60% 34%); background: hsl(var(--h) 65% 50% / .13); white-space: nowrap; }
+  button.theme { cursor: pointer; }
+  button.theme.off { opacity: .38; }
+  .tally { font-size: 11px; color: var(--muted); margin-top: 7px; }
+  .row-short { display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; gap: 10px; padding: 7px 8px 7px 0;
+               border-radius: 8px; cursor: pointer; margin-top: 2px; }
+  .row-short:hover { background: var(--bg); }
+  .row-short.active { background: var(--bg); box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .row-short .bar { border-radius: 2px; background: var(--line); }
+  .row-short.pick .bar { background: var(--keep); }
+  .row-short.maybe .bar { background: var(--manual); }
+  .row-short.reject .bar { background: var(--rejected); }
+  .row-short.reject .name { color: var(--muted); text-decoration: line-through; }
+  .row-short .name { font-weight: 600; font-size: 13px; line-height: 1.3; overflow: hidden;
+                     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .row-short .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 3px; font-size: 11px; color: var(--muted); }
+  .row-short .num { text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; line-height: 1.5; }
+  .row-short .num b { display: block; font-size: 13px; color: var(--ink); }
+  .warn { color: var(--raw-ink); }
+  .detail { display: none; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  body.shorts-tab .detail { display: block; }
+  .detail .top { display: flex; align-items: baseline; gap: 8px; }
+  .detail h2 { margin: 0; font-size: 17px; line-height: 1.3; }
+  .detail .chips { margin-top: 8px; }
+  .chip.warn { background: rgba(255, 159, 10, .14); color: var(--raw-ink); }
+  .scores { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .scores b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .progress { height: 4px; margin-top: 10px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--short); }
+  .decide { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+  .decide .spacer { flex: 1; }
+  .decide button kbd { margin-left: 5px; }
+  .decide button.pick.on { background: var(--keep2); border-color: var(--keep2); color: #fff; }
+  .decide button.maybe.on { background: var(--manual); border-color: var(--manual); color: #1d1d1f; }
+  .decide button.reject.on { background: var(--rejected); border-color: var(--rejected); color: #fff; }
+  .decide button.on kbd { background: transparent; color: inherit; border-color: currentColor; }
+  .words { margin-top: 12px; font-size: 15px; line-height: 1.65; max-height: 300px; overflow-y: auto; }
+  .words .piece + .piece::before { content: "/"; color: var(--muted); margin: 0 8px 0 4px; }
+  .words .w { border-radius: 3px; cursor: pointer; }
+  .words .w:hover { background: var(--bg); }
+  .words .w.now { background: rgba(94, 92, 230, .22); }
+  .detail textarea { width: 100%; height: 54px; margin-top: 10px; resize: vertical; border: 1px solid var(--line); border-radius: 8px;
+                     padding: 7px 9px; font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); }
+  .seg.short.active { background: var(--short); color: #fff; }
+  /* the shorts tab keeps the decision in view: a shorter player, no colour legend */
+  body.shorts-tab video { width: auto; max-width: 100%; height: min(46vh, 560px); margin: 0 auto; }
+  body.shorts-tab .legend { display: none; }
+  body.shorts-tab .timeline { height: 50px; margin-top: 10px; }
+  .short-keys, #vertical { display: none !important; }
+  body.shorts-tab .short-keys { display: inline-flex !important; }
+  body.shorts-tab #vertical { display: inline-block !important; }
+  /* a centre crop to 9:16, to see a short framed the way a phone shows it */
+  body.shorts-tab #stage.vertical video { aspect-ratio: 9 / 16; width: auto; height: min(52vh, 640px); max-height: none; margin: 0 auto; object-fit: cover; }
+  @media (prefers-color-scheme: dark) {
+    .theme { color: hsl(var(--h) 75% 76%); background: hsl(var(--h) 55% 50% / .2); }
+  }
   @media (max-width: 1000px) { main, main.reading { grid-template-columns: 1fr; } aside { max-height: none; } }
   #send, .summary { display: none; }
   body.served #send { display: inline-block; }
@@ -335,6 +445,7 @@ PAGE = r"""<!doctype html>
       <button id="back" title="Back 5 s (←)">−5s</button>
       <button id="ahead" title="Forward 5 s (→)">+5s</button>
       <span class="rates" id="rates"></span>
+      <button id="vertical" title="Preview a 9:16 centre crop (V)">9:16</button>
       <span class="clock" id="clock"></span>
     </div>
     <div class="timeline" id="timeline">
@@ -353,7 +464,10 @@ PAGE = r"""<!doctype html>
       <span><i style="background:var(--short)"></i>short candidate</span>
     </div>
     <div class="keys"><span><kbd>Space</kbd>play</span><span><kbd>←</kbd><kbd>→</kbd>5 s</span>
-      <span><kbd>J</kbd><kbd>L</kbd>10 s</span><span><kbd>&lt;</kbd><kbd>&gt;</kbd>speed</span></div>
+      <span><kbd>J</kbd><kbd>L</kbd>10 s</span><span><kbd>&lt;</kbd><kbd>&gt;</kbd>speed</span>
+      <span class="short-keys"><kbd>↑</kbd><kbd>↓</kbd>short</span><span class="short-keys"><kbd>P</kbd><kbd>M</kbd><kbd>X</kbd>pick, maybe, reject</span>
+      <span class="short-keys"><kbd>R</kbd>replay</span><span class="short-keys"><kbd>N</kbd>note</span><span class="short-keys"><kbd>V</kbd>9:16</span></div>
+    <div class="detail" id="detail"></div>
   </section>
   <aside class="card">
     <div class="tabs" id="tabs"></div>
@@ -362,7 +476,7 @@ PAGE = r"""<!doctype html>
 </main>
 <footer class="card">
   <div class="row"><strong>Feedback for the agent</strong>
-    <span class="tag" id="hint">toggle Reject or Pick, then copy this</span>
+    <span class="tag" id="hint"></span>
     <span class="summary" id="summary"></span>
     <button id="copy" style="margin-left:auto">Copy</button>
     <button id="send" title="Saves the feedback in the project folder for the agent">Send to agent</button></div>
@@ -512,19 +626,23 @@ function tick() {
   // the file name alone fits the control row; the tooltip has the full path
   const file = FOLDER && session >= 0 ? `${D.media[session].name.split("/").pop()} ${fmt(el.currentTime)}` : `source ${fmt(t)} / ${fmt(D.durationSeconds)}`;
   let clock = file;
-  if (inProgram) clock = `${NOVLOG ? "all footage, pauses removed" : FOLDER ? "vlog" : "clean"} ${fmt(x)} / ${fmt(D.keptSeconds)}  ·  ${clock}`;
+  if (inProgram) clock = `${NOVLOG ? "all footage, pauses removed" : FOLDER ? PROGRAM.toLowerCase() : "clean"} ${fmt(x)} / ${fmt(D.keptSeconds)}  ·  ${clock}`;
   else if (playlist && playlist !== D.keeps) clock = `${$("clock").dataset.label}  ·  ${clock}`;
   if ($("clock").textContent !== clock) {
     $("clock").textContent = clock;
     $("clock").title = FOLDER && session >= 0 ? `${clock}\n${D.media[session].name}` : clock;
   }
   $("toggle").textContent = el.paused ? "Play" : "Pause";
+  if (tab === "shorts") tickShort();
   requestAnimationFrame(tick);
 }
 
-// before selects exist a folder has no vlog yet: the player shows all footage
+// before selects exist a folder has no vlog yet: the player shows all footage.
+// a talking head recorded in several files is a folder too: its selects are an edit
 const NOVLOG = FOLDER && !D.selects.length;
-$("mode-clean").textContent = NOVLOG ? "All footage" : FOLDER ? "Vlog" : "Clean cut";
+const VLOG = D.style === "vlog";
+const PROGRAM = !FOLDER ? "Clean cut" : NOVLOG ? "All footage" : VLOG ? "Vlog" : "Edit";
+$("mode-clean").textContent = PROGRAM;
 $("mode-clean").onclick = () => setMode("clean");
 $("mode-original").onclick = () => setMode("original");
 $("toggle").onclick = () => {
@@ -615,14 +733,21 @@ $("back").onclick = () => skip(-5);
 $("ahead").onclick = () => skip(5);
 setRate(rate, true);
 document.addEventListener("keydown", (ev) => {
-  if (ev.metaKey || ev.ctrlKey || ev.altKey || ev.target.closest("textarea, input")) return;
-  const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key, step = RATES.indexOf(rate);
-  if (k === " " || k === "k") $("toggle").click();
+  if (ev.key === "Escape" && ev.target.closest("textarea, input")) return ev.target.blur();
+  if (ev.metaKey || ev.ctrlKey || ev.altKey || ev.target.closest("textarea, input, select")) return;
+  const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key, at = RATES.indexOf(rate);
+  const onShorts = tab === "shorts" && SHORTS.length;
+  if (onShorts && (k === "ArrowDown" || k === "ArrowUp")) step(k === "ArrowDown" ? 1 : -1);
+  else if (onShorts && current && (k === "p" || k === "m" || k === "x")) decide({ p: "pick", m: "maybe", x: "reject" }[k]);
+  else if (onShorts && current && (k === "r" || k === "Enter")) playShort(shortById(current));
+  else if (onShorts && current && k === "n") $("short-note").focus();
+  else if (onShorts && k === "v") $("vertical").click();
+  else if (k === " " || k === "k") $("toggle").click();
   else if (k === "ArrowLeft") skip(-5);
   else if (k === "ArrowRight") skip(5);
   else if (k === "j") skip(-10);
   else if (k === "l") skip(10);
-  else if (k === "<" || k === ">") setRate(RATES[Math.min(Math.max(0, step + (k === ">" ? 1 : -1)), RATES.length - 1)]);
+  else if (k === "<" || k === ">") setRate(RATES[Math.min(Math.max(0, at + (k === ">" ? 1 : -1)), RATES.length - 1)]);
   else return;
   ev.preventDefault();
   // a focused button would also take the space bar on key up
@@ -646,7 +771,8 @@ if (matchMedia("(pointer: coarse)").matches) {
 }
 
 // ---------- timeline ----------
-const rejected = new Set(), picked = new Set(), dropped = new Set();
+const rejected = new Set(), dropped = new Set();
+let current = null, tab = null;  // the short being reviewed, the open tab
 const pct = (x) => `${(x / AX) * 100}%`;
 function seg(lane, s, e, cls, text, style) {
   const d = document.createElement("div");
@@ -716,12 +842,13 @@ function drawMarks() {
 function drawShorts() {
   $("lane-shorts").innerHTML = "";
   D.shorts.forEach((s) => {
-    if (!FOLDER) return seg("lane-shorts", s.keeps.length ? s.keeps[0][0] : 0, s.keeps.length ? s.keeps.at(-1)[1] : 0, "short", s.id);
+    const cls = s.id === current ? "short active" : "short";
+    if (!FOLDER) return seg("lane-shorts", s.keeps.length ? s.keeps[0][0] : 0, s.keeps.length ? s.keeps.at(-1)[1] : 0, cls, s.id);
     // one mark per piece, so a short made of distant moments does not look like one
     // long stretch; the id goes on the widest piece, where it has room to read
     const spans = s.keeps.map(([a, b]) => spanOf(a, b)).filter(Boolean);
     const widest = spans.reduce((w, x) => (x[1] - x[0] > w[1] - w[0] ? x : w), spans[0]);
-    spans.forEach((x) => seg("lane-shorts", x[0], Math.max(x[1], x[0] + AX / 300), "short", x === widest ? s.id : ""));
+    spans.forEach((x) => seg("lane-shorts", x[0], Math.max(x[1], x[0] + AX / 300), cls, x === widest ? s.id : ""));
   });
 }
 drawCuts(); drawMarks(); drawShorts();
@@ -736,12 +863,20 @@ function feedback() {
     lines.push(`Reject ${[...rejected].join(", ")} in ${D.projectFile}. Add to edits.keeps:`);
     D.decisions.filter((d) => rejected.has(d.id)).forEach((d) => lines.push(`  ${keepEntry(d)}`));
   }
-  if (picked.size) {
-    lines.push(`Export ${[...picked].join(", ")}:`);
-    lines.push(`  ${D.exportCommand} ${[...picked].join(" ")}`);
+  const picks = shortsWith("pick"), maybes = shortsWith("maybe"), nos = shortsWith("reject");
+  if (picks.length) {
+    lines.push(`Export ${picks.join(", ")}:`);
+    lines.push(`  ${D.exportCommand} ${picks.join(" ")}`);
+  }
+  if (maybes.length) lines.push(`Maybe ${maybes.join(", ")}: keep them in shorts, not ready to export yet.`);
+  if (nos.length) lines.push(`Remove ${nos.join(", ")} from shorts in ${D.projectFile}.`);
+  const noted = SHORTS.filter((s) => noteOf(s.id));
+  if (noted.length) {
+    lines.push("Notes on shorts:");
+    noted.forEach((s) => lines.push(`  ${s.id} (${s.title || "untitled"}): ${noteOf(s.id)}`));
   }
   $("feedback").value = lines.join("\n") || "Nothing selected yet.";
-  const n = dropped.size + rejected.size + picked.size;
+  const n = dropped.size + rejected.size + SHORTS.filter((s) => statusOf(s.id) !== "review" || noteOf(s.id)).length;
   $("summary").textContent = n ? `${n} change${n > 1 ? "s" : ""} for the agent` : "No changes yet";
   $("send").disabled = !n;
 }
@@ -814,7 +949,7 @@ function leadIn(p) {
   playRanges([...before, ...after], `${p.id} in place`, new Map([[before.length, [p]]]));
 }
 function vlogView() {
-  if (!D.selects.length) return `<div class="empty">No selects yet: the vlog is the whole clean footage.
+  if (!D.selects.length) return `<div class="empty">No selects yet: the player plays the whole clean footage.
     Ask the agent to choose moments; they are stored under "selects" in ${esc(D.projectFile)}.</div>`;
   let last = null;
   return (AFTER.start || []).map(pickupCard).join("") + D.selects.map((s) => {
@@ -824,7 +959,7 @@ function vlogView() {
     return `${head}
     <div class="item ${off ? "dropped" : ""}">
       <div class="top"><span class="id">${s.id}</span>${s.title ? `<strong>${esc(s.title)}</strong>` : ""}</div>
-      <div class="tag">${esc(s.where)}  ·  ${fmt(spans(s.keeps))} in the vlog</div>
+      <div class="tag">${esc(s.where)}  ·  ${fmt(spans(s.keeps))} in the ${PROGRAM.toLowerCase()}</div>
       ${s.beat || s.role || s.raw ? `<div class="chips">${[s.beat, s.role !== s.beat ? s.role : ""].filter(Boolean).map((t) => `<span class="chip">${esc(t)}</span>`).join("")}${s.raw ? `<span class="chip raw" title="plays as it happened: no silence or retake cuts inside">raw</span>` : ""}</div>` : ""}
       ${s.intent ? `<p class="intent">${esc(s.intent)}</p>` : ""}
       ${s.text ? `<p>${esc(s.text)}</p>` : ""}
@@ -835,20 +970,207 @@ function vlogView() {
       </div>
     </div>${(AFTER[s.id] || []).map(pickupCard).join("")}`; }).join("");
 }
-function shortsView() {
-  if (!D.shorts.length) return `<div class="empty">No short candidates yet. Ask the agent to propose some;
-    they are stored under "shorts" in ${esc(D.projectFile)}.</div>`;
-  return D.shorts.map((s) => `
-    <div class="item ${picked.has(s.id) ? "picked" : ""}">
-      <div class="top"><span class="id">${s.id}</span><strong>${esc(s.title)}</strong></div>
-      <div class="tag">${esc(s.where)}  ·  ${fmt(spans(s.keeps))} clean  ·  ${s.keeps.length} segments</div>
-      ${s.why ? `<p>${esc(s.why)}</p>` : ""}
-      <div class="actions">
-        <button class="small" data-play-short="${s.id}">Play clean</button>
-        <button class="small ${picked.has(s.id) ? "on" : ""}" data-pick="${s.id}">${picked.has(s.id) ? "Picked" : "Pick"}</button>
-      </div>
-    </div>`).join("");
+// ---------- shorts: review many candidates fast ----------
+// the list sorts by priority (rank), quality (score), length or recording order,
+// groups by theme and filters by status, theme and words. a decision (pick,
+// maybe, reject) and a note per short live in this browser, so a reload keeps
+// the review; they are matched by id and title, so a renumbered short starts fresh
+const mean = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+const SHORTS = D.shorts.map((s, i) => ({ ...s, order: i, start: s.keeps.length ? s.keeps[0][0] : 0,
+  quality: typeof s.score === "number" ? s.score : mean(Object.values(s.scores || {})),
+  text: (s.pieces || []).map((p) => p.map((w) => w[1]).join(" ")).join(" / ") }));
+const shortById = (id) => SHORTS.find((s) => s.id === id);
+const THEMES = [...new Set(SHORTS.map((s) => s.theme).filter(Boolean))].sort();
+// the golden angle keeps neighbouring themes far apart on the colour wheel
+const themeChip = (name, tag = "span", off = false) => name
+  ? `<${tag} class="theme ${off ? "off" : ""}" style="--h:${Math.round((THEMES.indexOf(name) * 137.5 + 220) % 360)}"
+      ${tag === "button" ? `data-theme="${esc(name)}"` : ""}>${esc(name)}</${tag}>` : "";
+const STORE = `cutroom-shorts ${D.exportCommand}`;
+const verdicts = {};
+const read = (key, fallback) => { try { return JSON.parse(localStorage[key] || "null") || fallback; } catch (e) { return fallback; } };
+Object.entries(read(STORE, {})).forEach(([id, v]) => { const s = shortById(id); if (s && v.title === (s.title || "")) verdicts[id] = v; });
+function saveVerdicts() {
+  try { localStorage[STORE] = JSON.stringify(verdicts); } catch (e) {}
 }
+const statusOf = (id) => (verdicts[id] && verdicts[id].status) || "review";
+const noteOf = (id) => ((verdicts[id] && verdicts[id].note) || "").trim();
+const shortsWith = (status) => SHORTS.filter((s) => statusOf(s.id) === status).map((s) => s.id);
+function setVerdict(id, change) {
+  verdicts[id] = { status: "review", note: "", ...verdicts[id], ...change, title: shortById(id).title || "" };
+  saveVerdicts();
+}
+const STATUS = { all: "All", review: "To review", pick: "Picked", maybe: "Maybe", reject: "Rejected" };
+const last = (x) => x ?? Infinity;
+const SORTS = {
+  priority: ["Priority", (a, b) => last(a.rank) - last(b.rank) || last(-a.quality) - last(-b.quality) || a.order - b.order],
+  quality: ["Quality", (a, b) => last(-a.quality) - last(-b.quality) || last(a.rank) - last(b.rank) || a.order - b.order],
+  shortest: ["Shortest first", (a, b) => a.seconds - b.seconds || a.order - b.order],
+  recorded: ["Recording order", (a, b) => a.start - b.start || a.order - b.order],
+  project: ["Project file order", (a, b) => a.order - b.order],
+};
+const view = { sort: "priority", group: false, status: "all", ...read("cutroom-shorts-view", {}), themes: new Set(), query: "" };
+if (!SORTS[view.sort]) view.sort = "priority";
+function visibleShorts() {
+  const q = view.query.trim().toLowerCase();
+  const list = SHORTS.filter((s) => (view.status === "all" || statusOf(s.id) === view.status)
+    && (!view.themes.size || view.themes.has(s.theme))
+    && (!q || [s.id, s.title, s.theme, s.text, ...(s.tags || [])].join(" ").toLowerCase().includes(q)))
+    .sort(SORTS[view.sort][1]);
+  if (!view.group) return list;
+  // themes in the order their best short comes in, the shorts inside in the chosen order
+  const groups = [...new Set(list.map((s) => s.theme || ""))];
+  return list.sort((a, b) => groups.indexOf(a.theme || "") - groups.indexOf(b.theme || ""));
+}
+function shortsView() {
+  if (!SHORTS.length) return `<div class="empty">No short candidates yet. Ask the agent to propose some;
+    they are stored under "shorts" in ${esc(D.projectFile)}.</div>`;
+  return `<div class="short-head">
+      <div class="short-tools">
+        <input type="search" id="short-query" placeholder="Search titles, themes and words" value="${esc(view.query)}">
+        <select id="short-sort" title="Sort">${Object.entries(SORTS).map(([k, [label]]) =>
+          `<option value="${k}" ${k === view.sort ? "selected" : ""}>${label}</option>`).join("")}</select>
+        <select id="short-status" title="Show">${Object.entries(STATUS).map(([k, label]) =>
+          `<option value="${k}" ${k === view.status ? "selected" : ""}>${label}</option>`).join("")}</select>
+        ${THEMES.length ? `<label><input type="checkbox" id="short-group" ${view.group ? "checked" : ""}>Group by theme</label>` : ""}
+      </div>
+      ${THEMES.length ? `<div class="themes" id="short-themes"></div>` : ""}
+      <div class="tally" id="short-tally"></div>
+    </div>
+    <div id="short-rows"></div>`;
+}
+function mountShorts() {
+  if (!SHORTS.length) return;
+  const keep = () => { try { localStorage["cutroom-shorts-view"] = JSON.stringify({ sort: view.sort, group: view.group, status: view.status }); } catch (e) {} };
+  $("short-query").oninput = (ev) => { view.query = ev.target.value; renderRows(); };
+  $("short-sort").onchange = (ev) => { view.sort = ev.target.value; keep(); renderRows(); };
+  $("short-status").onchange = (ev) => { view.status = ev.target.value; keep(); renderRows(); };
+  if ($("short-group")) $("short-group").onchange = (ev) => { view.group = ev.target.checked; keep(); renderRows(); };
+  if ($("short-themes")) $("short-themes").onclick = (ev) => {
+    const b = ev.target.closest("[data-theme]");
+    if (!b) return;
+    view.themes.has(b.dataset.theme) ? view.themes.delete(b.dataset.theme) : view.themes.add(b.dataset.theme);
+    renderRows();
+  };
+  $("short-rows").onclick = (ev) => { const r = ev.target.closest("[data-short]"); if (r) chooseShort(r.dataset.short, true); };
+  renderRows();
+}
+function renderRows() {
+  if (!$("short-rows")) return;
+  const list = visibleShorts();
+  if ($("short-themes")) $("short-themes").innerHTML = THEMES.map((name) =>
+    themeChip(name, "button", view.themes.size && !view.themes.has(name))).join("");
+  const n = (st) => shortsWith(st).length;
+  $("short-tally").textContent = `${SHORTS.length} shorts  ·  ${n("pick")} picked  ·  ${n("maybe")} maybe  ·  ${n("reject")} rejected  ·  `
+    + `${SHORTS.length - n("pick") - n("maybe") - n("reject")} to review` + (list.length < SHORTS.length ? `  ·  showing ${list.length}` : "");
+  let group = null;
+  $("short-rows").innerHTML = list.map((s) => {
+    const head = view.group && (s.theme || "") !== group
+      ? `<div class="chapter">${esc(s.theme || "No theme")}  ·  ${list.filter((x) => (x.theme || "") === (s.theme || "")).length}</div>` : "";
+    group = s.theme || "";
+    const q = s.quality === null ? "" : `<b title="score">${+s.quality.toFixed(1)}</b>`;
+    return `${head}<div class="row-short ${statusOf(s.id)} ${s.id === current ? "active" : ""}" data-short="${s.id}">
+      <i class="bar"></i>
+      <div><div class="name">${esc(s.title || s.id)}</div>
+        <div class="meta"><span class="id">${s.id}</span>${s.rank ? `<span>#${s.rank}</span>` : ""}${themeChip(s.theme)}
+          ${s.flags.length ? `<span class="warn" title="${esc(s.flags.join("\n"))}">${s.flags.length} to check</span>` : ""}
+          ${noteOf(s.id) ? `<span title="${esc(noteOf(s.id))}">note</span>` : ""}</div></div>
+      <div class="num">${q}${mmss(s.seconds)}</div>
+    </div>`;
+  }).join("") || `<div class="empty">No shorts match. Clear the search or the filters.</div>`;
+}
+function renderDetail() {
+  const s = current && shortById(current);
+  if (!s) {
+    $("detail").innerHTML = SHORTS.length ? `<div class="empty">Choose a short in the list, or press ↓ to start with the first one.</div>` : "";
+    return;
+  }
+  const st = statusOf(s.id), scores = Object.entries(s.scores || {});
+  const btn = (k, label, key) => `<button class="${k} ${st === k ? "on" : ""}" data-verdict="${k}">${label}<kbd>${key}</kbd></button>`;
+  $("detail").innerHTML = `
+    <div class="top"><span class="id">${s.id}</span><h2>${esc(s.title || "Untitled")}</h2></div>
+    <div class="tag">${esc(s.where)}  ·  ${fmt(s.seconds)} clean  ·  ${s.keeps.length} ${s.keeps.length === 1 ? "range" : "ranges"}`
+      + `${s.rank ? `  ·  priority ${s.rank}` : ""}${s.quality !== null ? `  ·  score ${+s.quality.toFixed(1)}` : ""}</div>
+    <div class="progress"><i id="short-bar"></i></div>
+    <div class="decide">
+      <button data-replay title="Play from the start (R)">Play</button>
+      ${btn("pick", "Pick", "P")}${btn("maybe", "Maybe", "M")}${btn("reject", "Reject", "X")}
+      <span class="spacer"></span><span class="tag" id="short-clock">${fmt(s.seconds)}</span>
+    </div>
+    <div class="chips">${themeChip(s.theme)}${(s.tags || []).map((x) => `<span class="chip">${esc(x)}</span>`).join("")}
+      ${s.flags.map((f) => `<span class="chip warn" title="check the edge: a short has to make sense with no context">${esc(f)}</span>`).join("")}</div>
+    ${scores.length ? `<div class="scores">${scores.map(([k, v]) => `<span>${esc(k)} <b>${v}</b></span>`).join("")}</div>` : ""}
+    ${s.why ? `<p>${esc(s.why)}</p>` : ""}
+    <div class="words" id="short-words">${(s.pieces || []).map((p) => `<span class="piece">${p.map(([t0, w]) =>
+      `<span class="w" data-at="${t0}">${esc(w)}</span>`).join(" ")}</span>`).join("")}</div>
+    <textarea id="short-note" placeholder="Note for the agent, for example: start 2 s later, end on the laugh (N)">${esc(noteOf(s.id))}</textarea>`;
+  wordEls = [...$("detail").querySelectorAll(".w")];
+  lit = -1;
+  $("short-note").oninput = (ev) => { setVerdict(s.id, { note: ev.target.value }); feedback(); };
+  $("short-note").onchange = () => renderRows();
+}
+$("detail").onclick = (ev) => {
+  const s = current && shortById(current);
+  if (!s) return;
+  const b = ev.target.closest("[data-verdict],[data-replay],[data-at]");
+  if (!b) return;
+  if (b.dataset.verdict) decide(b.dataset.verdict);
+  else if (b.dataset.replay !== undefined) playShort(s);
+  else {
+    // a word plays the short from there
+    const at = +b.dataset.at, i = Math.max(0, s.keeps.findIndex(([, e]) => e > at));
+    if (playlist !== s.keeps) playShort(s);
+    idx = i; seek(at, true);
+  }
+};
+let wordEls = [], lit = -1;
+function playShort(s) { mode = "short"; playRanges(s.keeps, `${s.id} ${s.title || ""}`); }
+function chooseShort(id, go) {
+  current = id;
+  renderRows(); renderDetail(); drawShorts();
+  const row = document.querySelector(`.row-short[data-short="${id}"]`);
+  if (row) row.scrollIntoView({ block: "nearest" });
+  if (go) playShort(shortById(id));
+}
+function step(dir) {
+  const list = visibleShorts();
+  if (!list.length) return;
+  const i = list.findIndex((s) => s.id === current);
+  const next = i < 0 ? list[dir > 0 ? 0 : list.length - 1] : list[Math.min(Math.max(0, i + dir), list.length - 1)];
+  if (next.id !== current) chooseShort(next.id, true);
+}
+function decide(status) {
+  if (!current) return;
+  const list = visibleShorts(), i = list.findIndex((s) => s.id === current);
+  const undo = statusOf(current) === status;
+  setVerdict(current, { status: undo ? "review" : status });
+  renderRows(); renderDetail(); feedback(); renderTabs();
+  // a decision moves on to the next short in the list, so a review is one key per short
+  const next = list[i + 1];
+  if (!undo && next) chooseShort(next.id, true);
+}
+function tickShort() {
+  const s = current && shortById(current);
+  if (!s || !$("short-bar")) return;
+  const on = playlist === s.keeps && idx < s.keeps.length, t = now();
+  const done = on ? spans(s.keeps.slice(0, idx)) + Math.min(Math.max(0, t - s.keeps[idx][0]), s.keeps[idx][1] - s.keeps[idx][0]) : 0;
+  $("short-bar").style.width = `${(done / Math.max(s.seconds, 0.001)) * 100}%`;
+  const clock = on ? `${fmt(done)} / ${fmt(s.seconds)}` : fmt(s.seconds);
+  if ($("short-clock").textContent !== clock) $("short-clock").textContent = clock;
+  // the word being said
+  let k = -1;
+  if (on) { for (let lo = 0, hi = wordEls.length - 1; lo <= hi;) { const m = (lo + hi) >> 1; if (+wordEls[m].dataset.at <= t + 0.05) { k = m; lo = m + 1; } else hi = m - 1; } }
+  if (k !== lit) {
+    if (lit >= 0 && wordEls[lit]) wordEls[lit].classList.remove("now");
+    if (k >= 0) { wordEls[k].classList.add("now"); const box = $("short-words"), w = wordEls[k];
+      if (w.offsetTop < box.scrollTop || w.offsetTop > box.scrollTop + box.clientHeight - 30) box.scrollTop = w.offsetTop - box.offsetTop - 40; }
+    lit = k;
+  }
+}
+// the 9:16 preview stays on between reviews
+const vertical = (on) => { $("stage").classList.toggle("vertical", on); $("vertical").classList.toggle("on", on);
+  try { localStorage.cutroomVertical = on ? "1" : ""; } catch (e) {} };
+$("vertical").onclick = () => vertical(!$("stage").classList.contains("vertical"));
+try { vertical(localStorage.cutroomVertical === "1"); } catch (e) {}
 function decisionsView() {
   if (!D.decisions.length) return `<div class="empty">No retakes or manual cuts. Only silences were cut.</div>`;
   return D.decisions.map((d) => `
@@ -881,32 +1203,46 @@ function storyView() {
 const STORY = D.story ? { story: ["Story", storyView, null] } : {};
 const RECORD = PICKUPS.length ? { record: ["To record", recordView, () => PICKUPS.filter((p) => !dropped.has(p.id)).length] } : {};
 const TABS = FOLDER
-  ? { ...STORY, vlog: ["Vlog", vlogView, () => D.selects.length], ...RECORD, shorts: ["Shorts", shortsView, () => D.shorts.length],
+  ? { ...STORY, vlog: [VLOG ? "Vlog" : "Edit", vlogView, () => D.selects.length], ...RECORD, shorts: ["Shorts", shortsView, () => D.shorts.length],
       decisions: ["Cuts", decisionsView, () => D.decisions.length], transcript: ["Transcript", transcriptView, () => D.sentences.length] }
   : { ...STORY, ...RECORD, shorts: ["Shorts", shortsView, () => D.shorts.length], decisions: ["Cuts to check", decisionsView, () => D.decisions.length],
       transcript: ["Transcript", transcriptView, () => D.sentences.length] };
 $("tabs").innerHTML = Object.keys(TABS).map((k) => `<button data-tab="${k}"></button>`).join("");
-let tab = D.story && !(FOLDER && D.selects.length) ? "story" : FOLDER ? "vlog" : (D.shorts.length ? "shorts" : "decisions");
-function render() {
+const asked = decodeURIComponent(location.hash.slice(1));
+tab = TABS[asked] ? asked
+  : D.story && !(FOLDER && D.selects.length) ? "story"
+  : D.shorts.length && (!FOLDER || (!VLOG && !D.selects.length)) ? "shorts"
+  : FOLDER ? "vlog" : "decisions";
+const HINTS = { shorts: "pick, maybe or reject each short, add notes, then copy this" };
+const hint = FOLDER ? "toggle Drop or Reject, then copy this" : "toggle Reject, then copy this";
+function renderTabs() {
   document.querySelectorAll(".tabs button").forEach((b) => {
     const [label, , count] = TABS[b.dataset.tab];
     b.classList.toggle("on", b.dataset.tab === tab);
     const n = count && count();
     b.textContent = n ? `${label} (${n})` : label;
   });
+}
+function render() {
+  renderTabs();
   // the story is a document to read: give it room
   document.querySelector("main").classList.toggle("reading", tab === "story");
+  document.body.classList.toggle("shorts-tab", tab === "shorts");
   $("list").innerHTML = TABS[tab][1]();
+  if (tab === "shorts") { mountShorts(); renderDetail(); }
+  $("hint").textContent = HINTS[tab] || hint;
   feedback();
 }
-document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; render(); }));
+document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => {
+  tab = b.dataset.tab;
+  history.replaceState(null, "", `#${tab}`);
+  render();
+}));
 $("list").onclick = (ev) => {
-  const b = ev.target.closest("[data-play-short],[data-pick],[data-play-result],[data-play-removed],[data-reject],[data-seek],[data-play-select],[data-drop],[data-lead-in]");
+  const b = ev.target.closest("[data-play-result],[data-play-removed],[data-reject],[data-seek],[data-play-select],[data-drop],[data-lead-in]");
   if (!b) return;
   const ds = b.dataset, byId = (id) => D.decisions.find((d) => d.id === id);
-  if (ds.playShort) { const s = D.shorts.find((x) => x.id === ds.playShort); mode = "short"; playRanges(s.keeps, `${s.id} ${s.title}`); }
   if (ds.playSelect) { const s = D.selects.find((x) => x.id === ds.playSelect); mode = "select"; playRanges(s.keeps, `${s.id} ${s.title || s.chapter}`); }
-  if (ds.pick) { picked.has(ds.pick) ? picked.delete(ds.pick) : picked.add(ds.pick); render(); }
   if (ds.drop) { dropped.has(ds.drop) ? dropped.delete(ds.drop) : dropped.add(ds.drop); drawCuts(); drawMarks(); render(); }
   if (ds.leadIn) leadIn(PICKUPS.find((p) => p.id === ds.leadIn));
   if (ds.playResult) { const d = byId(ds.playResult); mode = "check";
@@ -922,7 +1258,6 @@ if (FOLDER) {
     <span><i style="outline:1.5px dashed var(--rejected)"></i>rejected</span><span><i style="background:var(--cut)"></i>dropped select</span>
     <span><i style="background:var(--short)"></i>short candidate</span>
     ${PICKUPS.length ? `<span><i style="background:var(--record)"></i>talking head to record</span>` : ""}`;
-  $("hint").textContent = "toggle Drop, Reject or Pick, then copy this";
 }
 $("title").textContent = D.title;
 const live = PICKUPS.filter(placed);
@@ -934,7 +1269,7 @@ $("stats").textContent = FOLDER && !D.selects.length
   ? `${D.media.length} clips, ${hours(D.durationSeconds)} of footage  ·  `
     + (D.story ? "story outline ready for review, no selects yet" : "no story or selects yet") + toRecord
   : FOLDER
-  ? `${D.media.length} clips, ${hours(D.durationSeconds)} of footage → ${fmt(D.keptSeconds)} vlog  ·  `
+  ? `${D.media.length} clips, ${hours(D.durationSeconds)} of footage → ${fmt(D.keptSeconds)} ${PROGRAM.toLowerCase()}  ·  `
     + `${D.selects.length} selects  ·  ${Object.keys(D.chapters).length} chapters  ·  ${judged} judgment cuts  ·  ${D.shorts.length} short candidates` + toRecord
   : `${fmt(D.durationSeconds)} → ${fmt(D.keptSeconds)} clean  ·  ${judged} judgment cuts  ·  ${D.shorts.length} short candidates` + toRecord;
 setMode("clean");

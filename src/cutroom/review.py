@@ -102,6 +102,8 @@ def write_review(job, dst: Path) -> Path:
     )
     data["style"] = job.data["style"]
     data["pickups"] = job.data["pickups"]
+    # every page needs the program: pickups and slates are placed on it
+    data["program"] = [[*_secs(r), r[2]] for r in job.program]
     data["story"] = markdown(story_text(job))
     if job.kind == "folder":
         words = plan.words or []
@@ -117,7 +119,6 @@ def write_review(job, dst: Path) -> Path:
                             "intent": item.get("intent", ""), "raw": bool(item.get("raw"))})
         data.update(
             keeps=[_secs(r) for r in job.program],
-            program=[[*_secs(r), r[2]] for r in job.program],
             keptSeconds=round(sum(r[1] - r[0] for r in job.program) / 1000, 3),
             chapters={str(i): title for i, title in job.chapters.items()},
             selects=selects,
@@ -144,6 +145,16 @@ PAGE = r"""<!doctype html>
     --bg: #f6f6f4; --panel: #ffffff; --ink: #1d1d1f; --muted: #6e6e73; --line: #e3e3e0;
     --keep: #34c759; --keep2: #248a3d; --cut: #c7c7cc; --retake: #ff453a; --manual: #ff9f0a; --rejected: #8e8e93;
     --protect: #0a84ff; --short: #5e5ce6; --accent: #0a84ff; --record: #0fa3a3;
+    --button: #ffffff; --hover: #c8c8c4; --on-ink: #ffffff; --raw-ink: #b25000; --record-ink: #0b7a7a;
+    color-scheme: light dark;
+  }
+  /* the page follows the device: dark when the system is dark */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --panel: #1e1e21; --ink: #f2f2f4; --muted: #9b9ba1; --line: #333337;
+      --keep: #30b350; --keep2: #1f7a35; --cut: #4a4a4e; --short: #8482ff; --record: #2cc4c4;
+      --button: #2a2a2e; --hover: #4c4c52; --on-ink: #141416; --raw-ink: #ffb35c; --record-ink: #5fd4d4;
+    }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
@@ -158,10 +169,10 @@ PAGE = r"""<!doctype html>
   video, .audio-stage { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; display: block; }
   .audio-stage { display: flex; align-items: center; justify-content: center; color: #aaa; text-align: center; padding: 24px; }
   .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
-  button { font: inherit; border: 1px solid var(--line); background: #fff; color: var(--ink);
+  button { font: inherit; border: 1px solid var(--line); background: var(--button); color: var(--ink);
            border-radius: 8px; padding: 5px 11px; cursor: pointer; }
-  button:hover { border-color: #c8c8c4; }
-  button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  button:hover { border-color: var(--hover); }
+  button.on { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
   button.small { padding: 2px 8px; font-size: 12px; }
   .rates { display: inline-flex; }
   .rates button { border-radius: 0; margin-left: -1px; }
@@ -181,9 +192,9 @@ PAGE = r"""<!doctype html>
   .keys { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; color: var(--muted); font-size: 12px; margin-top: 8px; }
   .keys span { display: inline-flex; align-items: center; gap: 3px; }
   .keys span kbd:last-of-type { margin-right: 3px; }
-  kbd { font-family: inherit; font-size: 11px; line-height: 16px; min-width: 18px; text-align: center; color: var(--ink); background: #fff;
+  kbd { font-family: inherit; font-size: 11px; line-height: 16px; min-width: 18px; text-align: center; color: var(--ink); background: var(--button);
         border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
-  .clock { flex: 1 1 240px; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  .clock { flex: 1 1 340px; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
            margin-left: auto; font-variant-numeric: tabular-nums; color: var(--muted); }
   .timeline { position: relative; height: 58px; margin-top: 12px; cursor: pointer; }
   .lane { position: absolute; left: 0; right: 0; border-radius: 4px; }
@@ -206,13 +217,13 @@ PAGE = r"""<!doctype html>
   .item.dropped { opacity: .5; }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
   .chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--bg); color: var(--muted); }
-  .chip.raw { background: rgba(255, 159, 10, .14); color: #b25000; }
+  .chip.raw { background: rgba(255, 159, 10, .14); color: var(--raw-ink); }
   .intent { color: var(--muted); font-style: italic; }
   .item.pickup { border: 1.5px dashed var(--record); background: rgba(15, 163, 163, .05); }
   .item.pickup .id { color: var(--record); }
   .item.pickup ul { margin: 6px 0 0; padding-left: 18px; }
   .item.pickup li { margin: 2px 0; }
-  .chip.record { background: rgba(15, 163, 163, .14); color: #0b7a7a; }
+  .chip.record { background: rgba(15, 163, 163, .14); color: var(--record-ink); }
   .story { padding: 4px 6px 12px; }
   .story h3, .story h4, .story h5 { margin: 14px 0 6px; font-size: 14px; }
   .story h3 { font-size: 16px; }
@@ -250,7 +261,7 @@ PAGE = r"""<!doctype html>
   footer { margin: 16px 24px 24px; padding: 12px; }
   footer .row { display: flex; align-items: center; gap: 10px; }
   footer textarea { width: 100%; height: 84px; margin-top: 8px; resize: vertical; border: 1px solid var(--line);
-                    border-radius: 8px; padding: 8px; font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--ink); }
+                    border-radius: 8px; padding: 8px; font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--ink); background: var(--bg); }
   @media (max-width: 1000px) { main, main.reading { grid-template-columns: 1fr; } aside { max-height: none; } }
 </style>
 </head>

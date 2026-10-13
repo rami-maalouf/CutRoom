@@ -89,6 +89,7 @@ def test_review_page_embeds_the_plan_and_short_segments(tmp_path, talk):
     short = data["shorts"][0]
     assert short["id"] == "S1" and len(short["keeps"]) == 2  # the kept take and the second point
     assert "cutroom export" in data["exportCommand"]
+    assert data["program"] == [[*k, None] for k in data["keeps"]]  # the page's start-up reads it
     # youtube-style controls: speeds, 5 s skips, and the keys that drive them
     assert "const RATES = [1, 1.5, 2];" in page and 'id="back"' in page and 'id="ahead"' in page
     assert all(f'k === "{k}"' in page for k in ("ArrowLeft", "ArrowRight", "j", "l", "k"))

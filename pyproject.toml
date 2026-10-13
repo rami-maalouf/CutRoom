@@ -1,6 +1,6 @@
 [project]
 name = "cutroom"
-version = "0.6.1"
+version = "0.7.0"
 description = "Cut silences and retakes from talking recordings: Screen Studio projects and plain video files."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -8,6 +8,8 @@ dependencies = [
     # apple silicon transcribes with mlx (metal); everything else with faster-whisper (ctranslate2)
     "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "faster-whisper>=1.1; sys_platform != 'darwin' or platform_machine != 'arm64'",
+    # the qr code `cutroom review --serve` prints for a phone to scan
+    "segno>=1.6",
 ]
 
 [project.optional-dependencies]

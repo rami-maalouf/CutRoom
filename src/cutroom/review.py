@@ -81,12 +81,15 @@ def markdown(text: str) -> str:
     return "\n".join(out)
 
 
-def write_review(job, dst: Path) -> Path:
+def review_html(job, media_uri=None, served: bool = False) -> str:
+    # media_uri(i, path) gives each file's address: file:// for the page on
+    # disk, a url on the local network when `cutroom review --serve` sends it
+    media_uri = media_uri or (lambda i, path: path.resolve().as_uri())
     plan = job.plan
     data = plan_data(plan, job.src)
     media, offset = [], 0.0
-    for s in job.sessions:
-        media.append({"uri": s["path"].resolve().as_uri(), "offset": round(offset / 1000, 3),
+    for i, s in enumerate(job.sessions):
+        media.append({"uri": media_uri(i, s["path"]), "offset": round(offset / 1000, 3),
                       "duration": round(s["durationMs"] / 1000, 3),
                       "name": s.get("rel", s["path"].name)})
         offset += s["durationMs"]
@@ -101,6 +104,7 @@ def write_review(job, dst: Path) -> Path:
                 for s in job.data["shorts"]],
     )
     data["style"] = job.data["style"]
+    data["served"] = served
     data["pickups"] = job.data["pickups"]
     # every page needs the program: pickups and slates are placed on it
     data["program"] = [[*_secs(r), r[2]] for r in job.program]
@@ -128,10 +132,21 @@ def write_review(job, dst: Path) -> Path:
             protectedRanges=[],
         )
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    return PAGE.replace("__TITLE__", html.escape(job.stem)).replace("__DATA__", payload)
+
+
+def write_review(job, dst: Path) -> Path:
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(PAGE.replace("__TITLE__", job.stem).replace("__DATA__", payload), encoding="utf-8")
+    dst.write_text(review_html(job), encoding="utf-8")
     print(f"wrote review page: {dst}")
     return dst
+
+
+def feedback_path(job) -> Path:
+    # where the served page's "Send to agent" writes the feedback
+    if job.kind == "folder":
+        return job.src / "cutroom" / "feedback.md"
+    return job.src.with_suffix(".feedback.md")
 
 
 PAGE = r"""<!doctype html>
@@ -263,6 +278,46 @@ PAGE = r"""<!doctype html>
   footer textarea { width: 100%; height: 84px; margin-top: 8px; resize: vertical; border: 1px solid var(--line);
                     border-radius: 8px; padding: 8px; font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--ink); background: var(--bg); }
   @media (max-width: 1000px) { main, main.reading { grid-template-columns: 1fr; } aside { max-height: none; } }
+  #send, .summary { display: none; }
+  body.served #send { display: inline-block; }
+  #send:disabled { opacity: .45; cursor: default; border-color: var(--line); }
+  /* phones: everything above is the desktop page; only narrow screens get this.
+     the player stays on top while the list scrolls, the feedback bar on the bottom */
+  @media (max-width: 700px) {
+    header { flex-direction: column; gap: 2px; padding: 12px 14px 10px; }
+    header h1 { font-size: 16px; }
+    header .stats { font-size: 12px; }
+    main, main.reading { padding: 0; gap: 10px; }
+    .card { border-radius: 0; border-left: none; border-right: none; }
+    .player { position: sticky; top: 0; z-index: 5; padding: 0 0 8px; border-top: none; }
+    video, .audio-stage { border-radius: 0; }
+    .controls { padding: 0 10px; gap: 6px; margin-top: 8px; }
+    .controls button { min-height: 36px; padding: 5px 11px; }
+    #back, #ahead { display: none; }
+    .clock { flex-basis: 100%; order: 9; text-align: left; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+    .timeline { height: 44px; margin: 6px 10px 0; }
+    .lane.base { height: 18px; }
+    .lane.marks { top: 21px; height: 6px; }
+    .lane.shorts { top: 29px; height: 15px; }
+    .seg.program { line-height: 18px; font-size: 9px; }
+    .seg.short { font-size: 9px; }
+    .playhead { height: 48px; }
+    .legend, .keys { display: none; }
+    aside { max-height: none; }
+    .tabs { padding: 8px 8px 0; }
+    .tabs button { padding: 8px 9px; font-size: 13px; }
+    .list { padding: 4px 10px 14px; }
+    .item button.small { padding: 7px 12px; font-size: 13px; }
+    footer { position: sticky; bottom: 0; z-index: 6; margin: 10px 0 0; border-radius: 0; border-left: none; border-right: none;
+             padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); }
+    footer textarea, footer #hint, footer .row strong { display: none; }
+    footer .summary { display: block; flex: 1; min-width: 0; font-size: 14px; font-weight: 600; }
+    footer button { min-height: 38px; white-space: nowrap; }
+    /* scrolling to an item keeps it clear of the player and the feedback bar */
+    html { scroll-padding-top: var(--player-h, 0px); scroll-padding-bottom: 72px; }
+    body.served footer #copy { display: none; }
+  }
+  @media (pointer: coarse) { #stage, button, .timeline { touch-action: manipulation; -webkit-tap-highlight-color: transparent; } }
 </style>
 </head>
 <body>
@@ -308,7 +363,9 @@ PAGE = r"""<!doctype html>
 <footer class="card">
   <div class="row"><strong>Feedback for the agent</strong>
     <span class="tag" id="hint">toggle Reject or Pick, then copy this</span>
-    <button id="copy" style="margin-left:auto">Copy</button></div>
+    <span class="summary" id="summary"></span>
+    <button id="copy" style="margin-left:auto">Copy</button>
+    <button id="send" title="Saves the feedback in the project folder for the agent">Send to agent</button></div>
   <textarea id="feedback" readonly></textarea>
 </footer>
 <script type="application/json" id="data">__DATA__</script>
@@ -351,6 +408,7 @@ function load(k, local, go) {
   if (k !== session) {
     session = k; pending = [local, go];
     el.src = D.media[k].uri;
+    if (go) play();  // inside the tap that asked for it; the seek follows on loadedmetadata
   } else if (el.readyState < 1) {
     pending = [local, go];
   } else {
@@ -434,7 +492,8 @@ function tick() {
     endSlate();
     if (playlist && idx < playlist.length) seek(playlist[idx][0], true); else if (playlist) finishPlaylist();
   }
-  if (playlist && !el.paused && !el.seeking) {
+  // while a file loads its time is not ours yet: never correct the playlist against it
+  if (playlist && !el.paused && !el.seeking && !pending) {
     const t = now(), r = playlist[idx];
     if (r && t >= r[1] - 0.02) {
       idx += 1;
@@ -570,6 +629,22 @@ document.addEventListener("keydown", (ev) => {
   if (document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur();
 });
 
+// touch screens: tap the video to play or pause, double tap a side to skip 10 s
+if (matchMedia("(pointer: coarse)").matches) {
+  let lastTap = 0, tapTimer = 0;
+  stage.addEventListener("click", (ev) => {
+    const box = stage.getBoundingClientRect(), x = (ev.clientX - box.left) / box.width, t = performance.now();
+    clearTimeout(tapTimer);
+    if (t - lastTap < 300 && (x < 0.35 || x > 0.65)) {
+      skip(x < 0.35 ? -10 : 10);
+      lastTap = t;  // keep tapping the same side to skip again
+      return;
+    }
+    lastTap = t;
+    tapTimer = setTimeout(() => $("toggle").click(), 300);
+  });
+}
+
 // ---------- timeline ----------
 const rejected = new Set(), picked = new Set(), dropped = new Set();
 const pct = (x) => `${(x / AX) * 100}%`;
@@ -666,6 +741,9 @@ function feedback() {
     lines.push(`  ${D.exportCommand} ${[...picked].join(" ")}`);
   }
   $("feedback").value = lines.join("\n") || "Nothing selected yet.";
+  const n = dropped.size + rejected.size + picked.size;
+  $("summary").textContent = n ? `${n} change${n > 1 ? "s" : ""} for the agent` : "No changes yet";
+  $("send").disabled = !n;
 }
 function keepEntry(d) {
   if (!FOLDER) return `[${d.start}, ${d.end}, "reject ${d.id}"]`;
@@ -678,6 +756,21 @@ $("copy").onclick = async () => {
   try { await navigator.clipboard.writeText(box.value); }
   catch { box.select(); document.execCommand("copy"); }
   $("copy").textContent = "Copied"; setTimeout(() => ($("copy").textContent = "Copy"), 1200);
+};
+// served on the local network (cutroom review --serve): the feedback goes to a
+// file the agent reads, since a phone has no clipboard shared with the computer
+if (D.served) document.body.classList.add("served");
+// the phone layout keeps the player on top: scrolling needs its height
+new ResizeObserver(([e]) => document.documentElement.style.setProperty("--player-h", `${Math.ceil(e.target.offsetHeight)}px`))
+  .observe(document.querySelector(".player"));
+$("send").onclick = async () => {
+  const b = $("send");
+  try {
+    const r = await fetch("feedback", { method: "POST", body: $("feedback").value });
+    if (!r.ok) throw new Error(await r.text());
+    b.textContent = "Sent"; $("summary").textContent = "saved: tell the agent to read it";
+  } catch (e) { b.textContent = "Not sent"; }
+  setTimeout(() => (b.textContent = "Send to agent"), 2000);
 };
 
 // ---------- side lists ----------

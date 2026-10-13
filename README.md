@@ -135,6 +135,8 @@ Before a vlog has selects, the player is labelled "All footage": it plays the wh
 
 If you then edit by hand in Final Cut Pro and want the agent to continue from there: File > Export XML, then `cutroom import <video> <exported.fcpxml>`. The Final Cut timeline becomes the edit (plain clips in source order; compound, multicam and retimed clips are refused).
 
+**On a phone:** `cutroom review <source> --serve` also serves the page and the project's media on your local network, and prints a URL and a QR code to scan (same Wi-Fi). On a phone the player stays on top while you scroll, a tap plays or pauses, a double tap on the left or right skips 10 s, and **Send to agent** writes the feedback to `cutroom/feedback.md` (or `<name>.feedback.md`) for the agent to read. Reload the page after the agent edits the project: it re-plans when the project file or the story changes. The URL carries a random token and only the project's own media files are served; stop the server with ctrl-c. macOS may ask once to allow incoming connections. 4K footage plays over Wi-Fi, but a weak connection can stutter.
+
 Why iterate here and not in Final Cut: every FCPXML import creates a new project, and Final Cut can copy the media into the library (one measured library held 43.9 GB of copied source files). Import once, at the end.
 
 ## A vlog from a folder of clips
@@ -151,7 +153,7 @@ CutRoom stops at files. These happen in GUI apps, done by a person or a computer
 
 | Step | How | What to check |
 |---|---|---|
-| Review the cut | `open <path>/review.html` | cuts land between sentences; each retake keeps the full final take; the story flows; shorts stand on their own |
+| Review the cut | `open <path>/review.html`, or on a phone `cutroom review <source> --serve` | cuts land between sentences; each retake keeps the full final take; the story flows; shorts stand on their own |
 | See a cut Screen Studio project | `open -a "Screen Studio" demo-clean.screenstudio` | protected pauses show the click or typing |
 | Export from Screen Studio | Screen Studio's Export button | Screen Studio has no command-line export |
 | Import into Final Cut Pro, once | File > Import > XML | media links in place (set Final Cut to leave files in place); mute the clips the agent flagged for room music |

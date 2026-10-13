@@ -92,7 +92,7 @@ cutroom candidates <folder> --write-selects --story-order     # selects in play 
 
 ### 8. Review and feedback
 
-`cutroom review <folder> --open`. The user watches the Vlog (Play; a slate marks each talking head to record), plays any select or short, and toggles Drop (a select or a talking head), Reject (a retake cut, if retakes were on) and Pick (a short), then Copy. When the user has recorded the talking heads (To record tab), add the files to the folder, make each a select in its place and remove its pickup. Apply the feedback to `cutroom.json` (remove dropped selects, add keeps, note picked shorts), re-run `cutroom script` and `cutroom review`, and write every correction into taste.md as a rule.
+`cutroom review <folder> --open`. The user watches the Vlog (Play; a slate marks each talking head to record), plays any select or short (on a phone: `cutroom review <folder> --serve`, feedback arrives in `cutroom/feedback.md`), and toggles Drop (a select or a talking head), Reject (a retake cut, if retakes were on) and Pick (a short), then Copy. When the user has recorded the talking heads (To record tab), add the files to the folder, make each a select in its place and remove its pickup. Apply the feedback to `cutroom.json` (remove dropped selects, add keeps, note picked shorts), re-run `cutroom script` and `cutroom review`, and write every correction into taste.md as a rule.
 
 ### 9. Export
 

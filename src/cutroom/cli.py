@@ -302,6 +302,11 @@ def run_review(args) -> None:
     else:
         dst = args.output or job.src.with_suffix(".review.html")
     write_review(job, dst)
+    if args.serve:
+        from .serve import serve
+        # the first plan is the one just made; later ones follow project edits
+        jobs = iter([job])
+        return serve(lambda: next(jobs, None) or make_plan(args.source, args), args.port)
     if args.open:
         webbrowser.open(dst.resolve().as_uri())
 
@@ -537,6 +542,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--report", type=Path, default=None, help="also write the json report")
     p.add_argument("--output", type=Path, default=None, help="page path (default <name>.review.html, or <folder>/cutroom/review.html)")
     p.add_argument("--open", action="store_true", help="open the page in the default browser")
+    p.add_argument("--serve", action="store_true",
+                   help="also serve the page and its media on the local network, to review on a phone")
+    p.add_argument("--port", type=int, default=8765, help="port for --serve (default 8765, any free one if taken)")
     p.set_defaults(run=run_review)
 
     p = sub.add_parser("script", help="read-through: the cut as a script in play order, for story review")

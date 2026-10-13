@@ -111,6 +111,10 @@ def subtract_ranges(ranges: list[Range], holes: list[Range],
 
 # ---------- transcript ----------
 
+# the least of a word that has to be heard (outside silence, inside a kept range)
+# for the word to count: shorter than any real syllable
+HEARD_MS = 80.0
+
 
 def drop_hallucinated_words(
     words: list[dict], silences: list[Range]
@@ -118,13 +122,15 @@ def drop_hallucinated_words(
     # whisper invents words during long silences (repetition loops, "LA LA LA"),
     # often with dense fake timings that bridge real takes into one run-on.
     # a hallucinated word's timing sits inside silence; real speech doesn't.
+    # after a pause whisper often starts a real word early, deep inside the
+    # silence before it, so judge by what is left outside silence, not by share
     kept, dropped = [], []
     for w in words:
         dur = w["endMs"] - w["startMs"]
         overlap = sum(
             max(0.0, min(w["endMs"], e) - max(w["startMs"], s)) for s, e in silences
         )
-        if dur <= 0 or overlap / dur > 0.5:
+        if dur <= 0 or dur - overlap < HEARD_MS:
             dropped.append(w)
         else:
             kept.append(w)

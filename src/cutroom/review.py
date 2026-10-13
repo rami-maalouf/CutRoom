@@ -13,6 +13,7 @@ import html
 import re
 
 from . import project
+from .core import HEARD_MS
 from .pipeline import plan_data
 from .script import story_text
 
@@ -90,7 +91,9 @@ LEANING = {"and", "but", "so", "because", "which", "also", "then", "or", "yeah",
 def edge_flags(pieces: list[list]) -> list[str]:
     # what to check at a short's edges (the standalone gate starts here): an
     # opening that leans on what came before, an ending cut off mid-sentence.
-    # hints, not verdicts: a transcript without punctuation trips the ending check
+    # hints, not verdicts: whisper writes many sentence starts in lowercase and
+    # leaves out full stops, and its word times hide pauses (one word ends where
+    # the next starts), so only listening settles an edge
     words = [w for piece in pieces for _, w in piece]
     if not words:
         return []
@@ -105,19 +108,27 @@ def edge_flags(pieces: list[list]) -> list[str]:
     return flags
 
 
+def played_words(words: list[dict], starts: list[float], lo: float, hi: float) -> list[int]:
+    # indexes of the words heard in [lo, hi). after a pause whisper often starts
+    # a word early, deep in the pause, though it is heard after it: the end is
+    # the reliable edge, so a word plays when it ends inside the range
+    first = bisect_left(starts, lo - 10_000)
+    return [i for i in range(first, bisect_left(starts, hi))
+            if lo + HEARD_MS <= words[i]["endMs"] <= hi + HEARD_MS]
+
+
 def short_data(job, short: dict, words: list[dict], starts: list[float]) -> dict:
     # the short as the page needs it: the ranges that play, and its words in
     # them, one list per piece (a piece is one segment of the project file)
     keeps = job.item_segments(short)
     pieces = []
     for a, b in project.segments(short, job.offsets):
-        piece = []
+        heard = []
         for s, e in keeps:
             lo, hi = max(s, a), min(e, b)
             if hi > lo:
-                piece += [[round(w["startMs"] / 1000, 2), w["word"].strip()]
-                          for w in words[bisect_left(starts, lo):bisect_left(starts, hi)]]
-        pieces.append(piece)
+                heard += [i for i in played_words(words, starts, lo, hi) if i not in heard[-1:]]
+        pieces.append([[round(words[i]["startMs"] / 1000, 2), words[i]["word"].strip()] for i in heard])
     return {**short, "where": _where(short), "keeps": [_secs(r) for r in keeps],
             "seconds": round(sum(e - s for s, e in keeps) / 1000, 2),
             "pieces": pieces, "flags": edge_flags(pieces)}

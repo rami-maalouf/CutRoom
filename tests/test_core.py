@@ -87,6 +87,14 @@ def test_drop_hallucinated_words_inside_silence():
     assert [x["word"] for x in dropped] == ["LA", "zero"]
 
 
+def test_a_real_word_whisper_started_inside_the_silence_before_it_is_kept():
+    # "I" is heard from 5000 to 5150; whisper started it at 4300, inside the pause
+    kept, dropped = drop_hallucinated_words(
+        [w(4300, 5150, "I"), w(5150, 5500, "wanted"), w(4950, 5040, "uh")], [(2000, 5000)])
+    assert [x["word"] for x in kept] == ["I", "wanted"]
+    assert [x["word"] for x in dropped] == ["uh"]
+
+
 def test_words_to_sentences_split_on_punctuation_and_pauses():
     words = [w(0, 300, "Hello"), w(300, 600, "there."), w(700, 900, "And"),
              w(900, 1100, "then"), w(2500, 2800, "again")]

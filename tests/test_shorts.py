@@ -8,7 +8,7 @@ import pytest
 
 from cutroom import project
 from cutroom.cli import main
-from cutroom.review import edge_flags
+from cutroom.review import edge_flags, played_words
 from conftest import make_video, needs_ffmpeg, write_transcript
 
 # 0-2 speech, 2-4 pause, 4-6 speech, 6-8 pause, 8-10 speech
@@ -50,6 +50,20 @@ def test_the_page_gets_each_shorts_words_by_piece_and_its_edge_checks(talk):
     assert s1["flags"] == []
     assert (s1["theme"], s1["rank"], s1["score"], s1["tags"]) == ("Rejection", 1, 8.5, ["v04"])
     assert s2["flags"] == ['opens on "because"', 'ends mid-sentence: "...it"']
+
+
+def test_a_word_started_early_inside_a_cut_still_counts_as_heard():
+    # whisper put "I" at 9.5 s, inside the pause cut before 10 s; it is heard after the cut
+    words = [{"startMs": 9500, "endMs": 10200, "word": "I"}, {"startMs": 10200, "endMs": 10600, "word": "wanted"},
+             {"startMs": 10600, "endMs": 11000, "word": "out."}, {"startMs": 11000, "endMs": 11400, "word": "Next"}]
+    starts = [w["startMs"] for w in words]
+    assert played_words(words, starts, 10000, 11000) == [0, 1, 2]
+    # a word with only a sliver inside the range is not heard
+    assert played_words(words, starts, 10000, 11030) == [0, 1, 2]
+    assert played_words(words, starts, 10170, 11000) == [1, 2]
+    # the word after the end started early, inside the pause after the short: not heard
+    after = words[:3] + [{"startMs": 11010, "endMs": 11900, "word": "so"}]
+    assert played_words(after, [w["startMs"] for w in after], 10000, 11050) == [0, 1, 2]
 
 
 def test_edge_flags_read_the_first_and_last_words():

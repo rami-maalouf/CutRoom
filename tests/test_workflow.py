@@ -170,3 +170,17 @@ def test_screen_studio_edit_made_before_cutroom_counts_as_cut(tmp_path):
     r = json.loads(out.read_text(encoding="utf-8"))
     assert all(s >= 8.0 and e <= 16.0 for s, e in r["keeps"])
     assert r["decisions"] == []  # the retake at 0-4 s is outside the edit
+
+
+def test_screen_studio_project_file_sits_next_to_the_package(tmp_path):
+    # a .screenstudio package is a folder, but not a folder of clips: its edits
+    # live in demo.cutroom.json beside it, never inside screen studio's package
+    pkg = make_screenstudio(tmp_path, [PATTERN])
+    write_transcript(pkg.with_suffix(".transcript.json"), WORDS)
+    assert project.project_path(pkg) == tmp_path / "demo.cutroom.json"
+    write_project(pkg, style="explainer", edits={"cuts": [[9.0, 11.0, "drop the second point"]], "keeps": []})
+    out = tmp_path / "r.json"
+    main(["project", str(pkg), "--yes", "--dry-run", "--report", str(out)])
+    r = json.loads(out.read_text(encoding="utf-8"))
+    assert not any(s < 10 < e for s, e in r["keeps"])
+    assert not (pkg / "cutroom").exists()

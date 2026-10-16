@@ -41,6 +41,7 @@ import sys
 from pathlib import Path
 
 from .core import Range
+from .screenstudio import is_screenstudio
 
 VERSION = 2
 # the kind of video: decides the defaults (see STYLE_DEFAULTS in cli.py) and
@@ -52,7 +53,9 @@ PICKUP_KINDS = ("talking-head", "voiceover")
 
 
 def project_path(src: Path) -> Path:
-    if src.is_dir():
+    # a folder of clips keeps it inside; a video or a screen studio package (also
+    # a folder) keeps it next to itself, so the package stays screen studio's own
+    if src.is_dir() and not is_screenstudio(src):
         return src / "cutroom" / "cutroom.json"
     return src.with_suffix(".cutroom.json")
 

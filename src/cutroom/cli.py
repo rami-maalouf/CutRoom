@@ -32,7 +32,8 @@ from .media import collect_silences, frame_strip, probe_video, render, require_f
 from .pipeline import Plan, plan_cuts, write_report
 from .review import short_data, write_review
 from .script import build_script, script_path
-from .screenstudio import action_times, check_package, edited_ranges, mic_sessions, write_cut_package
+from .screenstudio import (action_times, check_package, edited_ranges, is_screenstudio, mic_sessions,
+                           write_cut_package)
 from .transcribe import transcribe_sessions
 from .transfer import find_short
 
@@ -74,10 +75,6 @@ def add_cut_options(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--backend", choices=["mlx", "faster-whisper"], default=None,
                     help="transcription backend (default: mlx on apple silicon, else faster-whisper)")
     ap.add_argument("--yes", action="store_true", help="approve all cuts without asking")
-
-
-def is_screenstudio(path: Path) -> bool:
-    return path.suffix == ".screenstudio" or (path / "project.json").exists()
 
 
 @dataclass

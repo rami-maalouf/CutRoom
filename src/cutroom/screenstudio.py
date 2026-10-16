@@ -16,6 +16,10 @@ from .media import versioned_output
 ACTION_EVENTS = {"mouseDown", "keyDown"}
 
 
+def is_screenstudio(path: Path) -> bool:
+    return path.suffix == ".screenstudio" or (path / "project.json").exists()
+
+
 def _read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 

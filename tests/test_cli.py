@@ -87,3 +87,10 @@ def test_transcribe_reuses_the_cache(tmp_path, capsys):
     write_transcript(video.with_suffix(".transcript.json"), WORDS)
     main(["transcribe", str(video)])
     assert "3 words" in capsys.readouterr().out
+
+
+def test_read_through_clock_rounds_into_the_next_minute():
+    from cutroom.script import _clock
+    assert _clock(599.97) == "10:00.0"
+    assert _clock(59.94) == "0:59.9"
+    assert _clock(0) == "0:00.0"

@@ -11,8 +11,9 @@ from .core import words_to_sentences
 
 
 def _clock(seconds: float) -> str:
-    m, s = divmod(max(0.0, seconds), 60)
-    return f"{int(m)}:{s:04.1f}"
+    # round to tenths first, so 599.97 s reads 10:00.0 and not 9:60.0
+    m, s = divmod(round(max(0.0, seconds) * 10), 600)
+    return f"{m}:{s / 10:04.1f}"
 
 
 def _spoken(words: list[dict], segments: list[tuple]) -> str:

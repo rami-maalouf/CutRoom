@@ -8,6 +8,14 @@ Rules learned from the user's own feedback. They beat the general guidance in co
 - **A strong intro.** Never open on logistics. Open on the premise, the stakes, or the best moment, and finish the hook in the first 30 seconds.
 - **No product pitch that sounds like an ad,** unless it is funny (the 30-second pitch challenge was funny, so it stayed).
 
+## Explainers
+
+From the Expo team's notes on the SDK 58 video (2026-10-16).
+
+- **Smash the highlights in the intro.** A release or feature video opens on its best moments, fast: one shot and one short phrase each, about 1.5 seconds per shot, before the first topic. Propose it as a voiceover pickup over shots from the cut.
+- **The wrap-up repeats what matters.** End on the few things the viewer must remember (what is new, what is stable, how to upgrade), not "that is it, I could not cover everything".
+- **Lead with what the viewer gets for free.** Frame a feature through the default the viewer already uses ("use Expo Router and you get this, pretty much for free"), then the specific component, with a niche package last. Check the live release post before writing lines: it changes after launch.
+
 ## Shorts
 
 - **30 seconds to 3 minutes (2026-10-12, my story).** Aim for 30-90 seconds. Go up to 3 minutes only when the point needs the depth to land (a story whose payoff needs its setup). A clip longer than 3 minutes is not a short: find the strongest part inside it, or split it.

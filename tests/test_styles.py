@@ -1,7 +1,6 @@
 # video styles (talking head vs vlog), raw moments, the read-through and the story
 
 import json
-import re
 
 import pytest
 

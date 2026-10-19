@@ -144,7 +144,7 @@ def test_frames_shows_what_a_short_plays(talk):
 
 
 @needs_ffmpeg
-def test_a_short_of_the_finished_video_becomes_a_cut_screen_studio_project(tmp_path):
+def test_a_short_of_the_finished_video_becomes_a_cut_screen_studio_project(tmp_path, monkeypatch):
     # the recording: a retake of the opening, then the kept take and a second point
     from conftest import make_screenstudio, slices
     take = [("tone", 2), ("silence", 2), ("tone", 2), ("silence", 3), ("tone", 2)]
@@ -159,6 +159,9 @@ def test_a_short_of_the_finished_video_becomes_a_cut_screen_studio_project(tmp_p
                      [(3.1, 3.5, "Today"), (3.5, 3.9, "we"), (3.9, 4.3, "build"), (4.3, 4.9, "apps."), (6.1, 7.9, "Second.")])
     project.save(video, {"v": 2, "style": "explainer", "edits": {"cuts": [], "keeps": []},
                          "shorts": [{"id": "S1", "title": "the point", "raw": True, "start": 3.0, "end": 8.0}]})
+    # what whisper hears in the 5 s the short plays
+    fake_whisper(monkeypatch, [(0.1, 0.5, "Today"), (0.5, 0.9, "we"), (0.9, 1.3, "build"), (1.3, 1.9, "apps."),
+                               (3.1, 4.9, "Second.")])
     main(["export", str(video), "S1", "--screenstudio", str(pkg)])
     out = slices(tmp_path / "demo-S1.screenstudio")
     # the kept take and the second point, not the retake at the start of the recording
@@ -169,5 +172,94 @@ def test_a_short_of_the_finished_video_becomes_a_cut_screen_studio_project(tmp_p
 def test_a_short_that_is_not_in_the_project_stops_with_a_reason():
     from cutroom.transfer import find_short
     words = [{"startMs": i * 500.0, "endMs": i * 500.0 + 400, "word": w} for i, w in enumerate("one two three four".split())]
-    keeps, report = find_short([["seven", "eight", "nine"]], words, [])
+    keeps, report = find_short([["seven", "eight", "nine"]], words, words)
     assert keeps == [] and report[0]["matched"] == 0
+
+
+def test_words_heard_in_the_joined_slices_go_back_to_source_times():
+    from cutroom.transcribe import to_source
+    # slices 5-7 s and 12-13 s of the recording, joined: 0-2 s and 2-3 s. whisper
+    # starts "there" before the join, but it ends after it: it is the second slice's
+    places = [(5000.0, 7000.0, 0.0), (12000.0, 13000.0, 2000.0)]
+    out = to_source([(0.1, 0.5, "Hello"), (1.8, 2.3, "there"), (2.4, 2.8, "friend.")], places)
+    assert [(w["startMs"], w["endMs"]) for w in out] == [
+        pytest.approx((5100, 5500)), pytest.approx((12000, 12300)), pytest.approx((12400, 12800))]
+
+
+@needs_ffmpeg
+def test_a_sentence_whisper_started_early_in_a_pause_is_still_found_in_the_edit(tmp_path, monkeypatch):
+    # the recording: a bad take, a pause, the kept take; the project shows only
+    # the kept take. whisper on the whole recording put the kept take's first
+    # word 2.5 s early, deep in the pause, where the slices do not reach
+    from cutroom import transcribe
+    from conftest import make_screenstudio, slices
+    pkg = make_screenstudio(tmp_path, [[("tone", 2), ("silence", 3), ("tone", 2)]])
+    write_transcript(pkg.with_suffix(".transcript.json"),
+                     [(0.1, 0.5, "Hello"), (0.6, 1.0, "there"), (1.2, 1.8, "friend."),
+                      (2.5, 2.9, "Hello"), (5.6, 6.0, "there"), (6.2, 6.8, "friend.")])
+    meta = json.loads((pkg / "project.json").read_text(encoding="utf-8"))
+    meta["json"]["scenes"][0]["slices"] = [{"id": "s1", "sourceStartMs": 5000, "sourceEndMs": 7000, "speed": 1}]
+    (pkg / "project.json").write_text(json.dumps(meta))
+    heard = []
+
+    def whisper(samples, backend):
+        # what the 2 s the short plays, and the 2 s the slices play, really say
+        heard.append(len(samples))
+        return [(0.1, 0.5, "Hello"), (0.6, 1.0, "there"), (1.2, 1.8, "friend.")]
+    monkeypatch.setattr(transcribe, "transcribe_samples", whisper)
+    video = make_video(tmp_path / "final.mp4", [("silence", 1), ("tone", 2)])
+    write_transcript(video.with_suffix(".transcript.json"),
+                     [(1.1, 1.5, "Hello"), (1.6, 2.0, "there"), (2.2, 2.8, "friend.")])
+    project.save(video, {"v": 2, "style": "explainer", "edits": {"cuts": [], "keeps": []},
+                         "shorts": [{"id": "S1", "title": "hello", "raw": True, "start": 1.0, "end": 3.0}]})
+    main(["export", str(video), "S1", "--screenstudio", str(pkg)])
+    # the 2 s the short plays, then the 2 s the slices play
+    assert len(heard) == 2 and all(abs(n - 32000) < 400 for n in heard)
+    out = slices(tmp_path / "demo-S1.screenstudio")
+    # the kept take, not the bad take the old matcher fell back to
+    assert out and out[0][0] >= 5000 and out[-1][1] <= 7000
+    cache = json.loads(pkg.with_suffix(".shown.transcript.json").read_text(encoding="utf-8"))
+    assert cache["shown"] == [[5000, 7000]]
+    # a second run reads the edit's words from the cache
+    heard.clear()
+    main(["export", str(video), "S1", "--screenstudio", str(pkg)])
+    assert len(heard) == 1
+
+
+def test_edge_words_that_match_nothing_still_play_but_what_the_short_leaves_out_stays_out():
+    from cutroom.transfer import find_short
+    said = "by two times. Okay, on the cloud as I showed you".split()
+    words = [{"startMs": i * 300.0, "endMs": i * 300.0 + 250, "word": w} for i, w in enumerate(said)]
+    # "2" is "two" in the project's transcript: the end still takes "two times."
+    keeps, _ = find_short([["cold", "bundling", "by", "2", "times."]], words, words)
+    assert keeps[0][1] == words[3]["startMs"]
+    # the short ends on "cloud" to skip "as I showed you": nothing after it is taken
+    keeps, _ = find_short([["on", "the", "cloud"]], words, words)
+    assert keeps[0][1] == words[7]["startMs"]
+
+
+def fake_whisper(monkeypatch, words):
+    # every transcription of audio in memory hears these words
+    from cutroom import transcribe
+    monkeypatch.setattr(transcribe, "transcribe_samples", lambda samples, backend: list(words))
+
+
+@needs_ffmpeg
+def test_an_edge_word_the_video_transcript_times_outside_the_short_still_plays(tmp_path, monkeypatch):
+    # the short opens on "now". the video's transcript ends "now" exactly where
+    # the short starts, so it does not count as played; whisper on the short's
+    # own audio hears it, and the project keeps all of it
+    from conftest import make_screenstudio, slices
+    pkg = make_screenstudio(tmp_path, [[("tone", 2)]])
+    write_transcript(pkg.with_suffix(".transcript.json"),
+                     [(0.1, 0.4, "So"), (0.5, 0.8, "now"), (0.8, 1.2, "how"), (1.2, 1.5, "do"), (1.5, 1.9, "it?")])
+    video = make_video(tmp_path / "final.mp4", [("silence", 1), ("tone", 2)])
+    write_transcript(video.with_suffix(".transcript.json"),
+                     [(1.0, 1.3, "So"), (1.3, 1.4, "now"), (1.4, 1.8, "how"), (1.8, 2.1, "do"), (2.1, 2.5, "it?")])
+    project.save(video, {"v": 2, "style": "explainer", "edits": {"cuts": [], "keeps": []},
+                         "shorts": [{"id": "S1", "title": "how", "raw": True, "start": 1.4, "end": 3.0}]})
+    fake_whisper(monkeypatch, [(0.0, 0.1, "Now"), (0.1, 0.4, "how"), (0.4, 0.7, "do"), (0.7, 1.1, "it?")])
+    main(["export", str(video), "S1", "--screenstudio", str(pkg)])
+    out = slices(tmp_path / "demo-S1.screenstudio")
+    # 0.1 s before "now" (the lead), not from inside it (700 ms)
+    assert out[0][0] == pytest.approx(400) and out[-1][1] == pytest.approx(2000)

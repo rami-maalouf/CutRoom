@@ -35,12 +35,13 @@ def pick_backend(requested: str | None = None) -> str:
     return "faster-whisper"
 
 
-def _mlx_words(path: Path):
+def _mlx_words(audio):
+    # audio: a file path, or 16 khz mono float32 samples
     import mlx_whisper
 
     # condition_on_previous_text=False reduces whisper's repetition loops on silence
     result = mlx_whisper.transcribe(
-        str(path), path_or_hf_repo=MLX_MODEL,
+        audio, path_or_hf_repo=MLX_MODEL,
         word_timestamps=True, condition_on_previous_text=False,
     )
     for seg in result["segments"]:
@@ -72,19 +73,27 @@ def load_audio_16k(path: Path):
     return np.frombuffer(out, np.float32)
 
 
-def _faster_whisper_words(path: Path):
+def _faster_whisper_words(samples):
     segments, _info = _faster_whisper_model().transcribe(
-        load_audio_16k(path), word_timestamps=True, condition_on_previous_text=False,
+        samples, word_timestamps=True, condition_on_previous_text=False,
     )
     for seg in segments:
         for w in seg.words or []:
             yield w.start, w.end, w.word
 
 
+def _clean(words) -> list[tuple[float, float, str]]:
+    return [(s, e, w.strip()) for s, e, w in words if w.strip()]
+
+
 def transcribe_file(path: Path, backend: str) -> list[tuple[float, float, str]]:
     # (start_s, end_s, word) for one media file
-    words = _mlx_words(path) if backend == "mlx" else _faster_whisper_words(path)
-    return [(s, e, w.strip()) for s, e, w in words if w.strip()]
+    return _clean(_mlx_words(str(path)) if backend == "mlx" else _faster_whisper_words(load_audio_16k(path)))
+
+
+def transcribe_samples(samples, backend: str) -> list[tuple[float, float, str]]:
+    # the same for 16 khz mono samples already in memory
+    return _clean(_mlx_words(samples) if backend == "mlx" else _faster_whisper_words(samples))
 
 
 def load_cache(cache: Path) -> list[dict] | None:
@@ -142,4 +151,72 @@ def transcribe_sessions(sessions: list[dict], cache: Path | None, backend: str |
             words.append({**w, "startMs": w["startMs"] + offset_ms, "endMs": w["endMs"] + offset_ms})
         offset_ms += session["durationMs"]
     print(f"transcripts: {len(sessions)} clips ({fresh} transcribed now, the rest cached)")
+    return words
+
+
+SAMPLES_PER_MS = 16
+
+
+def _shown_audio(sessions: list[dict], shown: list[tuple[float, float]]):
+    # the samples the ranges play, end to end (what an export of the project
+    # sounds like), and per piece (source start ms, source end ms, start ms in the samples)
+    import numpy as np
+
+    offsets, acc = [], 0.0
+    for s in sessions:
+        offsets.append(acc)
+        acc += s["durationMs"]
+    decoded, chunks, places, at = {}, [], [], 0.0
+    for a, b in shown:
+        for off, s in zip(offsets, sessions):
+            lo, hi = max(a, off), min(b, off + s["durationMs"])
+            if hi <= lo or not s.get("hasAudio", True):
+                continue
+            if s["path"] not in decoded:
+                decoded[s["path"]] = load_audio_16k(s["path"])
+            x = decoded[s["path"]][int((lo - off) * SAMPLES_PER_MS):int((hi - off) * SAMPLES_PER_MS)]
+            if not len(x):
+                continue
+            places.append((lo, lo + len(x) / SAMPLES_PER_MS, at))
+            chunks.append(x)
+            at += len(x) / SAMPLES_PER_MS
+    return (np.concatenate(chunks) if chunks else np.zeros(0, np.float32)), places
+
+
+def to_source(words: list[tuple[float, float, str]], places: list[tuple[float, float, float]]) -> list[dict]:
+    # word times in the joined samples (s) -> source times (ms). a word belongs
+    # to the piece it ends in (whisper's reliable edge: a start after a join
+    # often lands before it) and never starts before that piece
+    out = []
+    for start, end, text in words:
+        t = end * 1000
+        lo, hi, at = next((p for p in reversed(places) if p[2] < t), places[0])
+        out.append({"startMs": lo + max(0.0, start * 1000 - at), "endMs": min(hi, lo + max(0.0, t - at)), "word": text})
+    return out
+
+
+def transcribe_shown(sessions: list[dict], shown: list[tuple[float, float]], cache: Path | None,
+                     backend: str | None = None, what: str = "what the project shows") -> list[dict]:
+    # the audio the ranges play, transcribed as one piece, in source times: what
+    # a screen studio project's slices play, or what a short plays. a transcript
+    # of the whole recording is not enough: after a pause whisper often starts a
+    # sentence seconds early, deep in the pause, so a word that plays looks cut,
+    # and a retake said ten times blurs which take is which. the cache (none for
+    # a short: seconds of audio) holds the ranges it was made for.
+    key = [[round(a, 1), round(b, 1)] for a, b in shown]
+    if cache is not None and cache.exists():
+        data = json.loads(cache.read_text(encoding="utf-8"))
+        if data.get("v") == CACHE_VERSION and data.get("shown") == key:
+            print(f"using cached transcript: {cache.name}")
+            return data["words"]
+    backend = pick_backend(backend)
+    samples, places = _shown_audio(sessions, shown)
+    if not places:
+        return []
+    print(f"transcribing {what} ({len(samples) / SAMPLES_PER_MS / 1000:.0f}s, {backend})...")
+    words = to_source(transcribe_samples(samples, backend), places)
+    if cache is not None:
+        model = MLX_MODEL if backend == "mlx" else FASTER_WHISPER_MODEL
+        cache.write_text(json.dumps({"v": CACHE_VERSION, "backend": backend, "model": model,
+                                     "shown": key, "words": words}, indent=1), encoding="utf-8")
     return words

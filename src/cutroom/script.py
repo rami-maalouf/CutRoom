@@ -38,7 +38,7 @@ def _pickup(p: dict) -> list[str]:
 
 
 def build_script(job) -> str:
-    plan, words = job.plan, job.plan.words or []
+    words = job.plan.words or []
     total = sum(r[1] - r[0] for r in job.program) / 1000
     pickups = job.data["pickups"]
     after = project.pickups_after(job.data)

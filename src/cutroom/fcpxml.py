@@ -14,7 +14,7 @@ from pathlib import Path
 import os
 from urllib.parse import urlparse
 from urllib.request import url2pathname
-from xml.sax.saxutils import escape, quoteattr
+from xml.sax.saxutils import quoteattr
 
 from .core import Range, merge_ranges
 

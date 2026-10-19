@@ -30,11 +30,11 @@ from .core import (Range, clean_segments, drop_hallucinated_words, invert_cuts, 
 from .fcpxml import read_keeps, write_fcpxml, write_timeline
 from .media import collect_silences, frame_strip, probe_video, render, require_ffmpeg, versioned_output
 from .pipeline import Plan, plan_cuts, write_report
-from .review import short_data, write_review
+from .review import write_review
 from .script import build_script, script_path
 from .screenstudio import (action_times, check_package, edited_ranges, is_screenstudio, mic_sessions,
                            write_cut_package)
-from .transcribe import transcribe_sessions
+from .transcribe import transcribe_sessions, transcribe_shown
 from .transfer import find_short
 
 
@@ -428,9 +428,14 @@ def export_to_screenstudio(job, item: dict, packages: list[Path], backend) -> No
     # becomes a new project with only that part: <project>-S2.screenstudio
     if job.kind == "screenstudio":
         return
-    words = job.plan.words or []
-    pieces = [[w for _, w in piece] for piece in
-              short_data(job, item, words, [w["startMs"] for w in words])["pieces"]]
+    # the words each piece really plays, from its own audio: the video's
+    # transcript can time an edge word just outside the piece, though it is heard
+    keeps = job.item_segments(item)
+    pieces = []
+    for a, b in project.segments(item, job.offsets):
+        ranges = [(max(s, a), min(e, b)) for s, e in keeps if min(e, b) > max(s, a)]
+        pieces.append([w["word"] for w in transcribe_shown(job.sessions, ranges, None, backend,
+                                                            f"what {item['id']} plays")])
     total = sum(len(p) for p in pieces)
     best = None
     for pkg in packages:
@@ -438,7 +443,11 @@ def export_to_screenstudio(job, item: dict, packages: list[Path], backend) -> No
         check_package(pkg)
         sessions = mic_sessions(pkg)
         found = transcribe_sessions(sessions, pkg.with_suffix(".transcript.json"), backend)
-        keeps, report = find_short(pieces, found, edited_ranges(pkg))
+        shown, recorded_ms = edited_ranges(pkg), sum(s["durationMs"] for s in sessions)
+        # an edit that plays the whole recording sounds like the recording
+        heard = found if sum(b - a for a, b in shown) >= recorded_ms - 1000 else \
+            transcribe_shown(sessions, shown, pkg.with_suffix(".shown.transcript.json"), backend)
+        keeps, report = find_short(pieces, heard, found)
         matched = sum(r["matched"] for r in report)
         if best is None or matched > best[0]:
             best = (matched, pkg, sessions, keeps, report)

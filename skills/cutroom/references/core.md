@@ -6,7 +6,7 @@ This file is the shared core. A talking-head **clean-up** ("process my latest vi
 
 ## The order of work
 
-1. **Brief.** From the conversation, write the brief: who is talking, for whom, the angle (why this video exists), the target length (a vlog has none unless the user gives one: its scenes decide), must-haves and must-nots. Talking head: `<name>.brief.md`; vlog: `<folder>/cutroom/brief.md`. Ask about anything you would otherwise guess.
+1. **Brief.** From the conversation, write the brief: who is talking, for whom, the angle (why this video exists), the target length (for a vlog without one: a selection of whole scenes a viewer finishes, see vlog.md), must-haves and must-nots. Talking head: `<name>.brief.md`; vlog: `<folder>/cutroom/brief.md`. Ask about anything you would otherwise guess.
 2. **Understand the material.** Read all of it before deciding anything (the style file says how: audio only for a talking head; transcript, contact sheets and a clip log for a vlog).
 3. **Story outline, then the approval gate.** Write the story (below) to `story.md` (`<name>.story.md` for a talking head, `<folder>/cutroom/story.md` for a vlog), run `cutroom review <source> --open`, and stop. Point the user to the page's Story tab. Never suggest opening the markdown in TextEdit (`open -e`): saving there converts it to `story.rtf` and cutroom no longer finds it. The user approves or corrects the story on the page's Story tab before any selection. This is the cheapest place to change direction.
 4. **Select by beat.** Fill the approved beats with footage. Each select carries `beat`, `role` and a one-line `intent` (see the schema below). Place every approved talking head to record after its select (`"after": "V12"`).

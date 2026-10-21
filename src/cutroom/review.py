@@ -6,14 +6,13 @@
 # for a folder of clips the page shows the vlog: the selects in order, by chapter.
 
 import json
-from bisect import bisect_left
 from pathlib import Path
 
 import html
 import re
 
 from . import project
-from .core import HEARD_MS
+from .core import played_words
 from .pipeline import plan_data
 from .script import story_text
 
@@ -130,15 +129,6 @@ def pointer_flags(pieces: list[list]) -> list[str]:
             flags.append(flag)
             until = end
     return flags[:3]
-
-
-def played_words(words: list[dict], starts: list[float], lo: float, hi: float) -> list[int]:
-    # indexes of the words heard in [lo, hi). after a pause whisper often starts
-    # a word early, deep in the pause, though it is heard after it: the end is
-    # the reliable edge, so a word plays when it ends inside the range
-    first = bisect_left(starts, lo - 10_000)
-    return [i for i in range(first, bisect_left(starts, hi))
-            if lo + HEARD_MS <= words[i]["endMs"] <= hi + HEARD_MS]
 
 
 def short_data(job, short: dict, words: list[dict], starts: list[float]) -> dict:

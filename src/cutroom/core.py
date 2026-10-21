@@ -8,6 +8,7 @@ import random
 import re
 import string
 import sys
+from bisect import bisect_left
 
 MIN_SLICE_MS = 120  # drop resulting slices/segments shorter than this
 MIN_CUT_MS = 200  # silence cuts shorter than this are not worth a cut
@@ -135,6 +136,15 @@ def drop_hallucinated_words(
         else:
             kept.append(w)
     return kept, dropped
+
+
+def played_words(words: list[dict], starts: list[float], lo: float, hi: float) -> list[int]:
+    # indexes of the words heard in [lo, hi). after a pause whisper often starts
+    # a word early, deep in the pause, though it is heard after it: the end is
+    # the reliable edge, so a word plays when it ends inside the range
+    first = bisect_left(starts, lo - 10_000)
+    return [i for i in range(first, bisect_left(starts, hi))
+            if lo + HEARD_MS <= words[i]["endMs"] <= hi + HEARD_MS]
 
 
 def words_to_sentences(words: list[dict], gap_ms: float = 1000.0) -> list[dict]:

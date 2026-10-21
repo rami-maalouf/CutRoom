@@ -68,6 +68,41 @@ def test_read_through_shows_chapters_tags_and_cuts_inside(shoot):
     assert "> (no speech)" in text and "raw" in text
 
 
+# speech, a 2 s pause, speech, a 2 s pause, speech. whisper starts "Today" a
+# second early, deep in the pause cut before it, though it is heard after the
+# cut; "Um," lies fully inside a manual cut
+EARLY = [("tone", 2), ("silence", 2), ("tone", 2), ("silence", 2), ("tone", 2)]
+EARLY_WORDS = [(0.1, 0.9, "Hello"), (0.9, 1.9, "everyone."), (3.0, 4.6, "Today"), (4.6, 5.9, "we cut."),
+               (8.1, 8.8, "Um,"), (9.0, 9.9, "Bye.")]
+
+
+@pytest.fixture
+def early(tmp_path):
+    video = make_video(tmp_path / "talk.mp4", EARLY)
+    write_transcript(video.with_suffix(".transcript.json"), EARLY_WORDS)
+    return video
+
+
+def test_read_through_keeps_a_word_whisper_started_inside_a_cut_pause(early):
+    project.save(early, {"v": 2, "edits": {"cuts": [{"start": 8.0, "end": 8.95}], "keeps": []},
+                         "selects": [], "shorts": []})
+    main(["script", str(early)])
+    lines = early.with_suffix(".script.md").read_text(encoding="utf-8").splitlines()
+    spoken = [line for line in lines if line.startswith("[")]
+    assert [line.split("] ", 1)[1] for line in spoken] == ["Hello everyone.", "Today we cut.", "Bye."]
+    # the line plays where the cut resumes, not back inside the cut pause
+    clocks = [line[1:line.index("]")] for line in spoken]
+    assert clocks == sorted(clocks) and clocks[1] == "0:02.2"
+
+
+def test_read_through_of_selects_keeps_a_word_started_inside_a_cut_pause(early):
+    project.save(early, {"v": 2, "edits": {"cuts": [{"start": 8.0, "end": 8.95}], "keeps": []},
+                         "selects": [{"id": "V1", "start": 0.0, "end": 10.0}], "shorts": []})
+    main(["script", str(early)])
+    text = early.with_suffix(".script.md").read_text(encoding="utf-8")
+    assert "> Hello everyone. / Today we cut. / Bye.\n" in text   # "Um," is cut
+
+
 def test_story_tab_renders_the_outline(shoot):
     (shoot / "cutroom" / "story.md").write_text("# The story\n\nTwo people, a box of ducks.\n\n"
                                                  "- hook: cold open\n\n| beat | budget |\n|---|---|\n| intro | 0:30 |\n")

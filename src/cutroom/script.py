@@ -8,7 +8,7 @@
 from pathlib import Path
 
 from . import project
-from .core import words_to_sentences
+from .core import played_words, words_to_sentences
 
 
 def _clock(seconds: float) -> str:
@@ -17,10 +17,10 @@ def _clock(seconds: float) -> str:
     return f"{m}:{s / 10:04.1f}"
 
 
-def _spoken(words: list[dict], segments: list[tuple]) -> str:
+def _spoken(words: list[dict], starts: list[float], segments: list[tuple]) -> str:
     parts = []
     for s, e, *_ in segments:
-        text = " ".join(w["word"] for w in words if s <= w["startMs"] < e)
+        text = " ".join(words[i]["word"] for i in played_words(words, starts, s, e))
         if text:
             parts.append(text)
     return " / ".join(parts) or "(no speech)"
@@ -40,6 +40,7 @@ def _pickup(p: dict) -> list[str]:
 
 def build_script(job) -> str:
     words = job.plan.words or []
+    starts = [w["startMs"] for w in words]
     total = sum(r[1] - r[0] for r in job.program) / 1000
     pickups = job.data["pickups"]
     after = project.pickups_after(job.data)
@@ -58,9 +59,10 @@ def build_script(job) -> str:
         # sentence at its time in the cut; " / " marks a cut inside a sentence
         at = 0.0
         for s, e, *_ in job.program:
-            piece = [w for w in words if s <= w["startMs"] < e]
+            piece = [words[i] for i in played_words(words, starts, s, e)]
             for sent in words_to_sentences(piece):
-                out.append(f"[{_clock(at + (sent['startMs'] - s) / 1000)}] {sent['text']}")
+                # a word whisper started inside the cut before it plays from the cut on
+                out.append(f"[{_clock(at + (max(sent['startMs'], s) - s) / 1000)}] {sent['text']}")
             at += (e - s) / 1000
         return "\n".join(out + tail) + "\n"
 
@@ -81,7 +83,7 @@ def build_script(job) -> str:
         source = f"{item['clip']} {_clock(item['start'])}-{_clock(item['end'])}" if "clip" in item \
             else f"{_clock(item['start'])}-{_clock(item['end'])}"
         out.append(f"source: {source}" + ("" if segs else "  (NOTHING LEFT AFTER CUTS)"))
-        out.append(f"> {_spoken(words, segs)}" if segs else "> (empty)")
+        out.append(f"> {_spoken(words, starts, segs)}" if segs else "> (empty)")
         out.append("")
         at += length
         for p in after.get(item["id"], []):

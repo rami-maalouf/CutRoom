@@ -374,16 +374,29 @@ def run_candidates(args) -> None:
     files = sorted((folder.workdir(src) / "candidates").glob("*.json"))
     if not files:
         sys.exit(f"no candidate files in {folder.workdir(src) / 'candidates'}")
-    found, problems = [], []
-    for path in files:
-        for n, c in enumerate(json.loads(path.read_text(encoding="utf-8"))):
-            where = f"{path.name}[{n}]"
-            if c.get("clip") not in durations:
-                problems.append(f"{where}: unknown clip {c.get('clip')!r}")
-            elif not 0 <= c.get("start", -1) < c.get("end", -1) <= durations[c["clip"]] + 0.05:
-                problems.append(f"{where}: range {c.get('start')}-{c.get('end')} is outside {c['clip']}")
-            else:
-                found.append({**c, "end": min(c["end"], durations[c["clip"]]), "file": path.name})
+
+    def read(paths: list[Path]) -> tuple[list[dict], list[str]]:
+        found, problems = [], []
+        for path in paths:
+            for n, c in enumerate(json.loads(path.read_text(encoding="utf-8"))):
+                where = f"{path.name}[{n}]"
+                if c.get("clip") not in durations:
+                    problems.append(f"{where}: unknown clip {c.get('clip')!r}")
+                elif not 0 <= c.get("start", -1) < c.get("end", -1) <= durations[c["clip"]] + 0.05:
+                    problems.append(f"{where}: range {c.get('start')}-{c.get('end')} is outside {c['clip']}")
+                else:
+                    found.append({**c, "end": min(c["end"], durations[c["clip"]]), "file": path.name})
+        return found, problems
+
+    found, problems = read(files)
+    # the inclusion list: every moment an agent judged, "in" or "out" with the reason
+    verdict_files = sorted((folder.workdir(src) / "inclusions").glob("*.json"))
+    verdicts, bad = read(verdict_files)
+    for v in verdicts:
+        if v.get("verdict") not in project.VERDICTS or not v.get("why"):
+            bad.append(f"{v['file']}: {v.get('title') or v['clip']} needs \"verdict\" (in or out) and \"why\"")
+    verdicts = [v for v in verdicts if v.get("verdict") in project.VERDICTS and v.get("why")]
+    problems += bad
     for p in problems:
         print(f"  skipped {p}")
     if not args.story_order:
@@ -417,9 +430,22 @@ def run_candidates(args) -> None:
         merged.append(select)
     data = project.load(src, set(durations), new_selects=True)
     data["selects"] = [{"id": f"V{i}", **m} for i, m in enumerate(merged, 1)]
+    if verdict_files:
+        verdicts.sort(key=lambda v: (order[v["clip"]], v["start"]))
+        data["inclusions"] = [
+            {"id": f"I{i}", "clip": v["clip"], "start": round(v["start"], 2), "end": round(v["end"], 2),
+             "verdict": v["verdict"], "why": str(v["why"]),
+             **{k: str(v[k]) for k in ("title", "chapter", "beat") if v.get(k) not in (None, "")}}
+            for i, v in enumerate(verdicts, 1)]
     path = project.save(src, data)
     how = "in story order" if args.story_order else f"score >= {args.min_score}"
     print(f"\nwrote {len(merged)} selects ({how}) to {path}")
+    if data["inclusions"]:
+        ins = sum(v["verdict"] == "in" for v in data["inclusions"])
+        print(f"inclusions: {ins} in, {len(data['inclusions']) - ins} out")
+        mismatches = project.inclusion_problems(data, folder.offsets(sessions))
+        for line in mismatches:
+            print(f"  check: {line}")
     print(f"next: cutroom review {json.dumps(str(src))} --open")
 
 

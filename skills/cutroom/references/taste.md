@@ -4,7 +4,7 @@ Rules learned from the user's own feedback. They beat the general guidance in co
 
 ## All videos
 
-- **Pace (Dan, head of marketing at Expo):** cut anything precious. A moment earns its place or it goes.
+- **Pace (Dan, head of marketing at Expo):** cut anything precious. A moment earns its place or it goes. For a vlog this decides which scenes stay, never how much of a scene plays (see Vlogs, "Scenes play whole").
 - **A strong intro.** Never open on logistics. Open on the premise, the stakes, or the best moment, and finish the hook in the first 30 seconds.
 - **No product pitch that sounds like an ad,** unless it is funny (the 30-second pitch challenge was funny, so it stayed).
 
@@ -23,6 +23,7 @@ From the Expo team's notes on the SDK 58 video (2026-10-16).
 
 ## Vlogs
 
+- **Scenes play whole (2026-10-21, Hack the North).** The 12-minute cut felt disconnected: 53 of its 78 selects were under 10 seconds, and 30 joins jumped forward inside one conversation, so clips started and stopped at odd times. Rami: "some clips deserve the full view time... keep the whole thing so people can be immersed in a specific scene", and "don't worry about duration: if a clip deserves its spot, keep it". A scene plays from where it starts to where it resolves; cut between scenes, not inside them; no target length unless he gives one. Every moment judged gets a verdict and a reason (the inclusion list), so he can bring back what was left out.
 - **Story over highlights.** The Hack the North recut built only from top-scored moments felt like a list. The earlier cut, built from a paper edit, felt like a story and was preferred. Always outline before selecting.
 - **Keep the process.** When Rami announced free AirPods for joining the workshop, he wanted to show himself not knowing what to say and talking to the person filming him. Fumbles, asides to the camera person and figuring it out on the spot are content in a vlog: select them, mark them `raw`.
 - **Suggest talking heads (2026-10-12, Mystery Interview).** Wherever a short line from Rami would clarify a jump or explain the lesson behind a moment, propose a talking head to record (`pickups`, core.md), so it shows on the review page's To record tab. Rami records them afterwards; the footage still carries the video.

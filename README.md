@@ -127,6 +127,7 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
 - **selects** (`V1`...) are the program in play order, with the story's `chapter`, `beat`, `role` and `intent`. Without selects, the program is the clean cut in recorded order.
 - **shorts** (`S1`...) are short-form candidates, exported from the clean cut (`"raw": true` plays a short exactly as recorded: right for a finished export, already paced by hand). Optional `theme`, `rank` (1 = review first), `score` (0-10), `scores` (`{"hook": 8, ...}`) and `tags` drive the Shorts tab; see [core.md](skills/cutroom/references/core.md#shorts) for how to find good ones.
 - **pickups** (`P1`...) are talking heads still to record: `{"id": "P1", "after": "V12", "kind": "talking-head", "seconds": 20, "purpose": "...", "points": ["..."]}`. The agent proposes one where the footage cannot explain itself (a jump with no bridge, missing context, the lesson the brief wants). `after` places it after a select (`"start"` opens the video); before selects exist, `"near": {"clip": ..., "time": s}` marks where in the raw footage it belongs. Once recorded, the file becomes a select.
+- **inclusions** (`I1`..., folders) are the editors' verdicts on every moment worth judging: `{"id": "I1", "clip": ..., "start": s, "end": s, "verdict": "in" | "out", "why": "...", "title": "..."}`. They play nothing (the selects do); they make each choice visible. `cutroom candidates` writes them from the agents' `inclusions/*.json` and reports a verdict the selects do not follow.
 - **ignore** (folders) lists patterns for files that are not footage, such as `["*-bad-quality.mp4"]` for a lower-quality copy of a clip. They match the path inside the folder. DJI `.LRF` proxies and photos are skipped anyway (only `.mp4`, `.mov`, `.m4v`, `.mkv` and `.mts` are clips).
 - For a single file, leave out `clip` (and the short list form `[start, end, note]` still works).
 
@@ -136,6 +137,7 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
 
 - **Story**: the outline to approve before any selection.
 - **Vlog / Edit / Clean cut**: the program (Edit for a talking head made of several files) with a timeline (chapters, retake marks, short marks); each select with Play and Drop, its beat, role, intent and a `raw` tag.
+- **Inclusions** (vlogs): every moment the agents judged, with its verdict and the reason. The moments left out come first; Play shows one as it was filmed, and Bring back asks the agent to give it its place.
 - **To record**: the talking heads to record, as a shot list with each one's purpose, talking points and length; Play where it goes plays the seconds around it. In the Vlog list each one sits after its select, the timeline marks it, and playback shows a 3-second slate in its place.
 - **Shorts**: built to review dozens of candidates fast. The page opens on it when shorts are the job.
   - The side list sorts by priority (`rank`), quality (`score`), length or recording order, groups by `theme`, and filters by status, theme and words.
@@ -144,7 +146,7 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
   - P, M and X pick, mark maybe or reject, then the next short plays. N writes a note ("start 2 s later"). V shows a 9:16 centre crop.
   - Decisions and notes stay in the browser after a reload, and go into the feedback text.
 - **Cuts**: each retake or manual cut with Play result, Play removed and Reject. **Transcript**: removed sentences struck through.
-- **Feedback**: toggle Drop (a select or a talking head) and Reject, decide on shorts, press Copy, paste to the agent. It edits the project file and re-plans in seconds.
+- **Feedback**: toggle Drop (a select or a talking head), Reject and Bring back, decide on shorts, press Copy, paste to the agent. It edits the project file and re-plans in seconds.
 - **Player keys, as on YouTube**: Space or K plays and pauses, ← → skip 5 s, J L skip 10 s, < > change the speed (1x, 1.5x, 2x; the page remembers it). On the clean cut or the vlog, a skip moves through what plays, so removed ranges never count.
 
 Before a vlog has selects, the player is labelled "All footage": it plays the whole shoot with pauses removed, not a cut.
@@ -168,7 +170,7 @@ A short is a moment that stands on its own: no word in it points at something ou
 
 Clips sit on one timeline in capture order (iPhone creation date, then the file's `creation_time`, then its modified time). The full procedure, with the agent prompts that worked, is in [`skills/cutroom/references/vlog.md`](skills/cutroom/references/vlog.md). In short:
 
-1. brief, 2. `cutroom digest`, 3. a clip log from vision sub-agents reading every contact sheet, 4. the story outline and your approval, 5. sub-agents fill the story's beats in parallel, 6. `cutroom candidates --write-selects --story-order`, 7. lead edit and read-through, 8. your review, 9. `cutroom export <folder> vlog S1 ...`.
+1. brief, 2. `cutroom digest`, 3. a clip log from vision sub-agents reading every contact sheet, 4. the story outline and your approval, 5. sub-agents fill the story's scenes in parallel and judge every moment of their clips "in" or "out" with a reason (the inclusion list), 6. `cutroom candidates --write-selects --story-order`, 7. lead edit and read-through, 8. your review, 9. `cutroom export <folder> vlog S1 ...`.
 
 On the first run (Hack the North, 101 clips, 3.9 h of 4K HEVC): transcription 20 minutes once, contact sheets 5.5 minutes once, every later re-plan seconds; the result was a 12-minute vlog in 8 chapters with 5 short candidates, all CutRoom state in 3.6 MB.
 

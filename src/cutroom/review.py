@@ -199,7 +199,18 @@ def review_html(job, media_uri=None, served: bool = False) -> str:
                             "why": item.get("why", ""), "where": _where(item), "text": text, "keeps": keeps,
                             "beat": item.get("beat", ""), "role": item.get("role", ""),
                             "intent": item.get("intent", ""), "raw": bool(item.get("raw"))})
+        # the inclusion list: each judged moment with its verdict, reason and the selects that play it
+        played = project.inclusion_selects(job.data, job.offsets)
+        inclusions = []
+        for item in job.data["inclusions"]:
+            span = project.segments(item, job.offsets)[0]
+            text = " ".join(w["word"] for w in words if span[0] <= w["startMs"] < span[1])
+            inclusions.append({"id": item["id"], "verdict": item["verdict"], "why": item["why"],
+                               "title": item.get("title", ""), "chapter": item.get("chapter", ""),
+                               "beat": item.get("beat", ""), "where": _where(item), "range": _secs(span),
+                               "text": text, "selects": played[item["id"]]})
         data.update(
+            inclusions=inclusions,
             keeps=[_secs(r) for r in job.program],
             keptSeconds=round(sum(r[1] - r[0] for r in job.program) / 1000, 3),
             chapters={str(i): title for i, title in job.chapters.items()},
@@ -317,6 +328,10 @@ PAGE = r"""<!doctype html>
   .item.pickup ul { margin: 6px 0 0; padding-left: 18px; }
   .item.pickup li { margin: 2px 0; }
   .chip.record { background: rgba(15, 163, 163, .14); color: var(--record-ink); }
+  .chip.in { background: rgba(52, 199, 89, .16); color: var(--keep2); }
+  .chip.out { background: var(--bg); color: var(--muted); outline: 1px solid var(--line); outline-offset: -1px; }
+  .item.back { outline: 1.5px solid var(--keep); outline-offset: -1.5px; }
+  .clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
   .story { padding: 4px 6px 12px; }
   .story h3, .story h4, .story h5 { margin: 14px 0 6px; font-size: 14px; }
   .story h3 { font-size: 16px; }
@@ -904,6 +919,8 @@ function feedback() {
   const droppedSelects = [...dropped].filter((id) => id[0] === "V"), droppedPickups = [...dropped].filter((id) => id[0] === "P");
   if (droppedSelects.length) lines.push(`Remove ${droppedSelects.join(", ")} from selects in ${D.projectFile}.`);
   if (droppedPickups.length) lines.push(`Remove ${droppedPickups.join(", ")} from pickups in ${D.projectFile}: no talking head there.`);
+  if (back.size) lines.push(`Bring back ${[...back].join(", ")}: give each moment its place in the story as a select, `
+    + `and set its verdict to "in" in inclusions in ${D.projectFile}.`);
   if (rejected.size) {
     lines.push(`Reject ${[...rejected].join(", ")} in ${D.projectFile}. Add to edits.keeps:`);
     D.decisions.filter((d) => rejected.has(d.id)).forEach((d) => lines.push(`  ${keepEntry(d)}`));
@@ -921,7 +938,7 @@ function feedback() {
     noted.forEach((s) => lines.push(`  ${s.id} (${s.title || "untitled"}): ${noteOf(s.id)}`));
   }
   $("feedback").value = lines.join("\n") || "Nothing selected yet.";
-  const n = dropped.size + rejected.size + SHORTS.filter((s) => statusOf(s.id) !== "review" || noteOf(s.id)).length;
+  const n = dropped.size + rejected.size + back.size + SHORTS.filter((s) => statusOf(s.id) !== "review" || noteOf(s.id)).length;
   $("summary").textContent = n ? `${n} change${n > 1 ? "s" : ""} for the agent` : "No changes yet";
   $("send").disabled = !n;
 }
@@ -1014,6 +1031,37 @@ function vlogView() {
         <button class="small ${off ? "on" : ""}" data-drop="${s.id}">${off ? "Dropped" : "Drop"}</button>
       </div>
     </div>${(AFTER[s.id] || []).map(pickupCard).join("")}`; }).join("");
+}
+// ---------- inclusions: every judged moment, in or out, with the reason ----------
+// the moments left out come first: they are the ones to question. "Bring back"
+// asks the agent to give a moment its place in the story.
+const INCL = D.inclusions || [];
+const back = new Set();
+function inclusionCard(m) {
+  const on = back.has(m.id);
+  const verdict = m.verdict === "in"
+    ? `<span class="chip in">in${m.selects.length ? `: ${m.selects.join(", ")}` : ""}</span>`
+    : `<span class="chip out">out</span>`;
+  const story = [m.chapter, m.beat].filter(Boolean).map((t) => `<span class="chip">${esc(t)}</span>`).join("");
+  return `
+    <div class="item ${on ? "back" : ""}">
+      <div class="top"><span class="id">${m.id}</span>${m.title ? `<strong>${esc(m.title)}</strong>` : ""}</div>
+      <div class="tag">${esc(m.where)}  ·  ${fmt(m.range[1] - m.range[0])}</div>
+      <div class="chips">${verdict}${story}</div>
+      <p class="intent">${esc(m.why)}</p>
+      ${m.text ? `<p class="clamp">${esc(m.text)}</p>` : ""}
+      <div class="actions">
+        <button class="small" data-play-moment="${m.id}">Play</button>
+        ${m.verdict === "out" ? `<button class="small ${on ? "on" : ""}" data-bring-back="${m.id}">${on ? "Bringing back" : "Bring back"}</button>` : ""}
+      </div>
+    </div>`;
+}
+function inclusionsView() {
+  const out = INCL.filter((m) => m.verdict === "out"), inn = INCL.filter((m) => m.verdict === "in");
+  return `<p class="tag">Every moment the agent judged, in recording order. Play a moment as it was filmed;
+      Bring back the ones that deserve a place.</p>`
+    + (out.length ? `<div class="chapter">Left out (${out.length})</div>` + out.map(inclusionCard).join("") : "")
+    + (inn.length ? `<div class="chapter">In the vlog (${inn.length})</div>` + inn.map(inclusionCard).join("") : "");
 }
 // ---------- shorts: review many candidates fast ----------
 // the list sorts by priority (rank), quality (score), length or recording order,
@@ -1247,8 +1295,9 @@ function storyView() {
 }
 const STORY = D.story ? { story: ["Story", storyView, null] } : {};
 const RECORD = PICKUPS.length ? { record: ["To record", recordView, () => PICKUPS.filter((p) => !dropped.has(p.id)).length] } : {};
+const INCLUSIONS = INCL.length ? { inclusions: ["Inclusions", inclusionsView, () => INCL.length] } : {};
 const TABS = FOLDER
-  ? { ...STORY, vlog: [VLOG ? "Vlog" : "Edit", vlogView, () => D.selects.length], ...RECORD, shorts: ["Shorts", shortsView, () => D.shorts.length],
+  ? { ...STORY, vlog: [VLOG ? "Vlog" : "Edit", vlogView, () => D.selects.length], ...INCLUSIONS, ...RECORD, shorts: ["Shorts", shortsView, () => D.shorts.length],
       decisions: ["Cuts", decisionsView, () => D.decisions.length], transcript: ["Transcript", transcriptView, () => D.sentences.length] }
   : { ...STORY, ...RECORD, shorts: ["Shorts", shortsView, () => D.shorts.length], decisions: ["Cuts to check", decisionsView, () => D.decisions.length],
       transcript: ["Transcript", transcriptView, () => D.sentences.length] };
@@ -1258,7 +1307,8 @@ tab = TABS[asked] ? asked
   : D.story && !(FOLDER && D.selects.length) ? "story"
   : D.shorts.length && (!FOLDER || (!VLOG && !D.selects.length)) ? "shorts"
   : FOLDER ? "vlog" : "decisions";
-const HINTS = { shorts: "pick, maybe or reject each short, add notes, then copy this" };
+const HINTS = { shorts: "pick, maybe or reject each short, add notes, then copy this",
+  inclusions: "bring back the moments that deserve a place, then copy this" };
 const hint = FOLDER ? "toggle Drop or Reject, then copy this" : "toggle Reject, then copy this";
 function renderTabs() {
   document.querySelectorAll(".tabs button").forEach((b) => {
@@ -1284,12 +1334,14 @@ document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => {
   render();
 }));
 $("list").onclick = (ev) => {
-  const b = ev.target.closest("[data-play-result],[data-play-removed],[data-reject],[data-seek],[data-play-select],[data-drop],[data-lead-in]");
+  const b = ev.target.closest("[data-play-result],[data-play-removed],[data-reject],[data-seek],[data-play-select],[data-drop],[data-lead-in],[data-play-moment],[data-bring-back]");
   if (!b) return;
   const ds = b.dataset, byId = (id) => D.decisions.find((d) => d.id === id);
   if (ds.playSelect) { const s = D.selects.find((x) => x.id === ds.playSelect); mode = "select"; playRanges(s.keeps, `${s.id} ${s.title || s.chapter}`); }
   if (ds.drop) { dropped.has(ds.drop) ? dropped.delete(ds.drop) : dropped.add(ds.drop); drawCuts(); drawMarks(); render(); }
   if (ds.leadIn) leadIn(PICKUPS.find((p) => p.id === ds.leadIn));
+  if (ds.playMoment) { const m = INCL.find((x) => x.id === ds.playMoment); mode = "check"; playRanges([m.range], `${m.id} ${m.title}`); }
+  if (ds.bringBack) { back.has(ds.bringBack) ? back.delete(ds.bringBack) : back.add(ds.bringBack); render(); }
   if (ds.playResult) { const d = byId(ds.playResult); mode = "check";
     playRanges([[Math.max(0, d.start - 3), d.start], [d.end, Math.min(D.durationSeconds, d.end + 3)]], `${d.id} result`); }
   if (ds.playRemoved) { const d = byId(ds.playRemoved); mode = "check"; playRanges([[d.start, d.end]], `${d.id} removed`); }

@@ -2,7 +2,8 @@
 # that survive. reading it is how a reviewer (agent or person) finds story
 # problems without watching: a payoff with no setup, two moments that do not
 # connect, an intro that does not hook. " / " marks a cut inside a moment.
-# talking heads still to record (pickups) appear where they will play.
+# talking heads still to record (pickups) appear where they will play, and the
+# moments judged out of the vlog (inclusions) are listed at the end.
 
 from pathlib import Path
 
@@ -85,7 +86,20 @@ def build_script(job) -> str:
         at += length
         for p in after.get(item["id"], []):
             out += _pickup(p)
-    return "\n".join(out + tail) + "\n"
+    return "\n".join(out + _left_out(job) + tail) + "\n"
+
+
+def _left_out(job) -> list[str]:
+    # the moments judged out, with the reason: read them with the cut, and bring
+    # back any that the story misses
+    out = [m for m in job.data.get("inclusions", []) if m["verdict"] == "out"]
+    if not out:
+        return []
+    lines = ["", f"## Left out ({len(out)} of {len(job.data['inclusions'])} judged moments)", ""]
+    for m in out:
+        where = f"{m['clip']} {_clock(m['start'])}-{_clock(m['end'])}"
+        lines.append(f"- {m['id']}  {m.get('title') or where}  ({where}): {m['why']}")
+    return lines
 
 
 def script_path(job) -> Path:

@@ -9,6 +9,8 @@
 #   shorts       short-form candidates                             (S1, S2, ...)
 #   pickups      talking heads to record: a line to camera (or a voiceover)
 #                that explains what the footage cannot          (P1, P2, ...)
+#   inclusions   folders: every moment worth judging in the footage, each
+#                "in" or "out" of the vlog with the reason why  (I1, I2, ...)
 #   style        "talking-head", "explainer" or "vlog" (default: vlog for a folder)
 #   ignore       folders: patterns for files that are not footage, e.g.
 #                "*-bad-quality.mp4" (matched against the path inside the folder)
@@ -32,6 +34,10 @@
 # "near": {"clip": ..., "time": s} marks where in the raw footage it belongs
 # (no "clip" for a single source), so a suggestion shows before any selects.
 # once recorded, the new file becomes a select and the pickup is removed.
+# an inclusion is an editor's verdict on one moment: {"id": "I1", "clip": ...,
+# "start": s, "end": s, "verdict": "in" | "out", "why": "...", "title": "...",
+# "chapter": "...", "beat": "..."}. it does not play anything: the selects do.
+# it makes the choice visible, so a moment left out can be brought back.
 # cutroom only stores, shows and exports selects, shorts and pickups; choosing
 # them is an editorial judgment made by an agent or a person.
 
@@ -50,6 +56,7 @@ STYLES = ("talking-head", "explainer", "vlog")
 # free text on selects and shorts: shown on the review page and in the read-through
 TEXT_FIELDS = ("chapter", "beat", "role", "intent", "title", "why", "theme")
 PICKUP_KINDS = ("talking-head", "voiceover")
+VERDICTS = ("in", "out")
 
 
 def project_path(src: Path) -> Path:
@@ -76,6 +83,7 @@ def load(src: Path, clips: set[str] | None = None, new_selects: bool = False) ->
     data.setdefault("selects", [])
     data.setdefault("shorts", [])
     data.setdefault("pickups", [])
+    data.setdefault("inclusions", [])
     if new_selects:
         data["selects"] = []
         # select ids are renumbered: a placed pickup has to be placed again
@@ -168,6 +176,20 @@ def validate(data: dict, path: Path, clips: set[str] | None) -> None:
         for key in TEXT_FIELDS + ("draft",):
             if key in item and not isinstance(item[key], str):
                 sys.exit(f"{path.name}: {iid} \"{key}\" must be text, got {item[key]!r}")
+    ids = set()
+    for item in data["inclusions"]:
+        iid = item.get("id", "")
+        if not re.fullmatch(r"I\d+", iid) or iid in ids:
+            sys.exit(f"{path.name}: every entry in inclusions needs a unique id like I1, got {iid!r}")
+        ids.add(iid)
+        check_range(item, f"inclusions {iid}")
+        if item.get("verdict") not in VERDICTS:
+            sys.exit(f"{path.name}: {iid} \"verdict\" must be \"in\" or \"out\", got {item.get('verdict')!r}")
+        if not isinstance(item.get("why"), str) or not item["why"]:
+            sys.exit(f"{path.name}: {iid} needs a \"why\": the reason it is in or out")
+        for key in TEXT_FIELDS:
+            if key in item and not isinstance(item[key], str):
+                sys.exit(f"{path.name}: {iid} \"{key}\" must be text, got {item[key]!r}")
     for key, prefix in (("selects", "V"), ("shorts", "S")):
         ids = set()
         for item in data[key]:
@@ -226,6 +248,30 @@ def pickups_after(data: dict) -> dict[str, list[dict]]:
         if p.get("after"):
             out.setdefault(p["after"], []).append(p)
     return out
+
+
+def inclusion_selects(data: dict, offsets: dict[str, float] | None = None) -> dict[str, list[str]]:
+    # inclusion id -> the selects that play part of it, in play order. a touch
+    # at the edges (a select that ends where the next moment starts) does not count
+    spans = [(s["id"], *_ms(seg, offsets)) for s in data["selects"] for seg in (s.get("segments") or [s])]
+    out = {}
+    for item in data["inclusions"]:
+        a, b = _ms(item, offsets)
+        out[item["id"]] = list(dict.fromkeys(sid for sid, s, e in spans if min(e, b) - max(s, a) > 500))
+    return out
+
+
+def inclusion_problems(data: dict, offsets: dict[str, float] | None = None) -> list[str]:
+    # a verdict the selects do not follow: "in" with nothing playing it, or "out" that plays
+    played = inclusion_selects(data, offsets)
+    problems = []
+    for item in data["inclusions"]:
+        sids = played[item["id"]]
+        if item["verdict"] == "in" and not sids:
+            problems.append(f"{item['id']} is in, but no select plays it ({item.get('title', '')})")
+        elif item["verdict"] == "out" and sids:
+            problems.append(f"{item['id']} is out, but {', '.join(sids)} play part of it ({item.get('title', '')})")
+    return problems
 
 
 def find(data: dict, iid: str) -> dict:

@@ -6,7 +6,7 @@ A folder of clips from a shoot, a trip, an event. Nobody scripted it, so the sto
 
 Every moment the editors judge gets a verdict, "in" or "out", with the reason (the **inclusion list**, `inclusions` in the project file). The review page shows the moments left out, so the user can play any of them and bring it back.
 
-cutroom defaults for this style: `pacing relaxed` (only long pauses go), retake detection **off**. In a vlog, not knowing what to say, talking to the person filming, a false start that gets a laugh: that is the process, and the process is the story. Use `--retakes` only for a clip that is really a talking-head take.
+cutroom defaults for this style: **no automatic pause cuts** and retake detection **off**. A pause inside a scene is a reaction or someone walking up, and a cut there is a jump in the picture; you remove dead stretches by choosing the ranges (`--silences` brings automatic pause cuts back, with `pacing relaxed`). On Hack the North, automatic pause cuts made 88 jumps inside 22 scenes. In a vlog, not knowing what to say, talking to the person filming, a false start that gets a laugh: that is the process, and the process is the story. Use `--retakes` only for a clip that is really a talking-head take.
 
 Everything lives in `<folder>/cutroom/`: `cutroom.json` (project file), `brief.md`, `transcripts/`, `digest/`, `sheets/`, `log.md`, `story.md`, `candidates/`, `script.md`, `review.html`, `exports/`.
 
@@ -63,7 +63,7 @@ Read the brief, all of `log.md` and the digest lines you need, yourself: this is
 - **Talking heads to record** (core.md): where a line from the creator would clarify a jump or deliver the brief's lesson. Write them to the story and to `cutroom.json` `pickups` (no `after` yet, but a `near` clip and time), so the review page marks them on the timeline and lists them on the To record tab.
 - **List what you leave out and why** (the inclusion list in step 5 makes this complete), and **the facts only the user can confirm** (is this the same person? may we use this guest's line? the spelling of a name). Settle what the footage can settle yourself (compare contact sheets, read a slide).
 
-Run `cutroom review <folder> --open` and stop. The page opens on the Story tab; before selects exist its player says "All footage" (the whole shoot with pauses removed, not the cut).
+Run `cutroom review <folder> --open` and stop. The page opens on the Story tab; before selects exist its player says "All footage" (the whole shoot, not the cut).
 
 ### 5. Fill the scenes and write the inclusion list (one sub-agent per part of the story)
 

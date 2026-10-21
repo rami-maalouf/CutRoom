@@ -15,19 +15,19 @@ pytestmark = needs_ffmpeg
 
 def test_a_folder_is_a_vlog_and_a_file_is_a_talking_head(tmp_path, shoot, capsys):
     main(["review", str(shoot)])
-    assert "style: vlog (pacing relaxed, retakes off)" in capsys.readouterr().out
+    assert "style: vlog (pacing relaxed, retakes off, pause cuts off)" in capsys.readouterr().out
     video = make_video(tmp_path / "talk.mp4", SPEECH)
     write_transcript(video.with_suffix(".transcript.json"), WORDS)
     main(["review", str(video)])
-    assert "style: talking-head (pacing balanced, retakes on)" in capsys.readouterr().out
+    assert "style: talking-head (pacing balanced, retakes on, pause cuts on)" in capsys.readouterr().out
 
 
 def test_explicit_flags_and_the_project_style_win(tmp_path, capsys):
     video = make_video(tmp_path / "talk.mp4", SPEECH)
     write_transcript(video.with_suffix(".transcript.json"), WORDS)
     project.save(video, {"v": 2, "style": "vlog", "edits": {"cuts": [], "keeps": []}, "selects": [], "shorts": []})
-    main(["review", str(video), "--pacing", "tight", "--retakes"])
-    assert "style: vlog (pacing tight, retakes on)" in capsys.readouterr().out
+    main(["review", str(video), "--pacing", "tight", "--retakes", "--silences"])
+    assert "style: vlog (pacing tight, retakes on, pause cuts on)" in capsys.readouterr().out
 
 
 def test_unknown_style_is_refused(tmp_path):
@@ -37,10 +37,17 @@ def test_unknown_style_is_refused(tmp_path):
         main(["review", str(video)])
 
 
+def test_a_vlog_scene_plays_as_filmed(shoot):
+    # vlog default: no automatic pause cuts, a pause inside a scene is part of it
+    save(shoot, selects=[{"id": "V1", "clip": "phone/c.mov", "start": 0.0, "end": 6.0}])
+    main(["review", str(shoot)])
+    assert len(page_data(shoot)["selects"][0]["keeps"]) == 1
+
+
 def test_a_raw_moment_keeps_its_pauses(shoot):
     save(shoot, selects=[{"id": "V1", "clip": "phone/c.mov", "start": 0.0, "end": 6.0},
                          {"id": "V2", "clip": "cam/a.mp4", "start": 0.0, "end": 6.0, "raw": True}])
-    main(["review", str(shoot), "--pacing", "tight"])
+    main(["review", str(shoot), "--pacing", "tight", "--silences"])
     selects = {s["id"]: s for s in page_data(shoot)["selects"]}
     assert len(selects["V1"]["keeps"]) == 2          # the 2 s pause inside is cut
     assert len(selects["V2"]["keeps"]) == 1          # raw: plays as it happened
@@ -53,7 +60,7 @@ def test_read_through_shows_chapters_tags_and_cuts_inside(shoot):
          "beat": "arrival", "role": "setup", "intent": "open on the premise"},
         {"id": "V2", "clip": "cam/broll.mp4", "start": 0.0, "end": 3.0, "chapter": "Evening", "raw": True},
     ])
-    main(["script", str(shoot), "--pacing", "tight"])
+    main(["script", str(shoot), "--pacing", "tight", "--silences"])
     text = (shoot / "cutroom" / "script.md").read_text(encoding="utf-8")
     assert "## Morning" in text and "## Evening" in text
     assert "### V1" in text and "arrival · setup" in text and "intent: open on the premise" in text

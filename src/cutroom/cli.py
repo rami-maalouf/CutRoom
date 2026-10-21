@@ -63,7 +63,10 @@ def add_cut_options(ap: argparse.ArgumentParser) -> None:
                     help="skip retake detection (default for vlogs, where fumbles are part of the story)")
     ap.add_argument("--retakes", dest="no_retakes", action="store_false",
                     help="detect and cut retakes (default for talking heads)")
-    ap.add_argument("--no-silences", action="store_true", help="skip silence cutting: retakes only")
+    ap.add_argument("--no-silences", dest="no_silences", action="store_true", default=None,
+                    help="skip silence cutting: retakes only (default for vlogs, where a scene plays as filmed)")
+    ap.add_argument("--silences", dest="no_silences", action="store_false",
+                    help="cut long pauses (default for talking heads and explainers)")
     ap.add_argument("--review-silences", action="store_true",
                     help="approve silence cuts one by one instead of as a batch")
     ap.add_argument("--no-protect-actions", action="store_true",
@@ -141,14 +144,16 @@ class Job:
 # what each kind of video needs by default; explicit flags always win
 STYLE_DEFAULTS = {
     # one speaker, one take after another: a repeated opening is a mistake
-    "talking-head": {"pacing": "balanced", "no_retakes": False},
+    "talking-head": {"pacing": "balanced", "no_retakes": False, "no_silences": False},
     # a talking head that also demos and shows the screen: the same cuts (screen
     # studio keeps the pauses that hold a click or keystroke); what differs is
     # what the agent checks (skills/cutroom/references/explainer.md)
-    "explainer": {"pacing": "balanced", "no_retakes": False},
-    # real moments: fumbles and crosstalk are part of the story, and pauses
-    # often hold action, so only long pauses go
-    "vlog": {"pacing": "relaxed", "no_retakes": True},
+    "explainer": {"pacing": "balanced", "no_retakes": False, "no_silences": False},
+    # real moments: fumbles and crosstalk are part of the story, and a scene
+    # plays as filmed: a pause inside it is a reaction or action, and a cut
+    # there is a jump in the picture. the editor removes dead stretches by
+    # choosing ranges; --silences brings automatic pause cuts back
+    "vlog": {"pacing": "relaxed", "no_retakes": True, "no_silences": True},
 }
 
 
@@ -157,7 +162,8 @@ def apply_style(args, style: str) -> None:
         if getattr(args, key, "unset") is None:
             setattr(args, key, value)
     resolve_pacing(args)
-    print(f"style: {style} (pacing {args.pacing}, retakes {'off' if args.no_retakes else 'on'})")
+    print(f"style: {style} (pacing {args.pacing}, retakes {'off' if args.no_retakes else 'on'}, "
+          f"pause cuts {'off' if args.no_silences else 'on'})")
 
 
 def open_source(path: Path, args) -> tuple[str, Path, list[dict], list[float]]:

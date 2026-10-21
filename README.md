@@ -35,7 +35,7 @@ Every project has a `style` in its project file. It sets CutRoom's defaults and 
 |---|---|---|---|
 | What the agent looks at | audio only: the words carry it | the words first, the picture where they point at it (`cutroom frames`) | words and picture: a contact sheet and a clip log for every clip |
 | Retakes | detected and cut: a repeated opening is a mistake | detected and cut; a re-demo can open differently, so the agent reads for it | off: fumbles and asides are part of the story (`--retakes` turns it on) |
-| Pacing | `balanced` | `balanced`; demo pauses that hold action stay (Screen Studio clicks and keystrokes are kept automatically) | `relaxed`: only long pauses go |
+| Pacing | `balanced` | `balanced`; demo pauses that hold action stay (Screen Studio clicks and keystrokes are kept automatically) | no automatic pause cuts: a scene plays as filmed, the editor cuts dead time by choosing ranges (`--silences` brings them back, `relaxed`) |
 | Depth | a quick **clean-up** ("process my latest video"), or a story-first **edit** | the same as a talking head | always a story-first **edit** |
 
 A story-first edit: a brief, then a story outline (`story.md`) that you approve on the review page's Story tab, then selects that fill the story's beats, then a read-through (`cutroom script`), then your review. Explicit flags always beat the style defaults.
@@ -73,7 +73,7 @@ Flags for every command that plans a cut:
 | `--min-silence`, `--trail`, `--lead`, `--min-keep` | override one value of the preset (seconds) |
 | `--cut START-END`, `--keep START-END` | one-off cut or protected range for this run; the project file makes them permanent |
 | `--retakes`, `--no-retakes` | retake detection on or off (default by style) |
-| `--no-silences` | retakes and manual cuts only |
+| `--no-silences` / `--silences` | retakes and manual cuts only (the vlog default) / also cut long pauses |
 | `--window`, `--threshold`, `--pre-roll` | retake search window, opening similarity (0-1), air kept before the kept take |
 | `--no-protect-actions`, `--action-before`, `--action-after` | Screen Studio: clicks and keystrokes keep their pause on screen (default on, 0.5 s before, 1.0 s after) |
 | `--review-silences` | approve silence cuts one by one instead of as a batch |
@@ -149,7 +149,7 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
 - **Feedback**: toggle Drop (a select or a talking head), Reject and Bring back, decide on shorts, press Copy, paste to the agent. It edits the project file and re-plans in seconds.
 - **Player keys, as on YouTube**: Space or K plays and pauses, ← → skip 5 s, J L skip 10 s, < > change the speed (1x, 1.5x, 2x; the page remembers it). On the clean cut or the vlog, a skip moves through what plays, so removed ranges never count.
 
-Before a vlog has selects, the player is labelled "All footage": it plays the whole shoot with pauses removed, not a cut.
+Before a vlog has selects, the player is labelled "All footage": it plays the whole shoot, not a cut.
 
 If you then edit by hand in Final Cut Pro and want the agent to continue from there: File > Export XML, then `cutroom import <video> <exported.fcpxml>`. The Final Cut timeline becomes the edit (plain clips in source order; compound, multicam and retimed clips are refused).
 

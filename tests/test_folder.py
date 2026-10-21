@@ -109,7 +109,7 @@ def test_vlog_review_page_shows_selects_by_chapter(shoot):
                    "why": "the opener"},
                   {"id": "V2", "clip": "cam/a.mp4", "start": 0.0, "end": 2.0, "chapter": "Noon"}],
          shorts=[{"id": "S1", "title": "hello", "segments": [{"clip": "phone/c.mov", "start": 0, "end": 2}]}])
-    main(["review", str(shoot)])
+    main(["review", str(shoot), "--silences"])
     data = page_data(shoot)
     assert data["kind"] == "folder" and len(data["media"]) == 3
     assert [s["id"] for s in data["selects"]] == ["V1", "V2"]

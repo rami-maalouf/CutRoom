@@ -349,7 +349,8 @@ PAGE = r"""<!doctype html>
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   aside { display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 150px); }
   .tabs { display: flex; gap: 4px; padding: 10px 10px 0; }
-  .tabs { flex: none; flex-wrap: nowrap; overflow-x: auto; }
+  /* a wide side panel shows every tab, on two rows if needed; a phone scrolls them */
+  .tabs { flex: none; flex-wrap: wrap; row-gap: 2px; }
   .tabs button { border: none; background: none; color: var(--muted); padding: 6px 7px; white-space: nowrap; font-size: 12.5px; }
   .tabs button.on { background: var(--bg); color: var(--ink); border-radius: 8px; }
   .list { overflow-y: auto; padding: 8px 10px 12px; }
@@ -464,7 +465,7 @@ PAGE = r"""<!doctype html>
     .playhead { height: 48px; }
     .legend, .keys { display: none; }
     aside { max-height: none; }
-    .tabs { padding: 8px 8px 0; }
+    .tabs { padding: 8px 8px 0; flex-wrap: nowrap; overflow-x: auto; }
     .tabs button { padding: 8px 9px; font-size: 13px; }
     .list { padding: 4px 10px 14px; }
     .item button.small { padding: 7px 12px; font-size: 13px; }

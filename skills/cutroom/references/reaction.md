@@ -45,6 +45,14 @@ A user often wants both: one that keeps everything the video says (cleaned, each
 
 Report both lengths, every removal with its reason, and the judgment calls the user may want back (a comment cut as a retake, an unfinished sentence removed).
 
+## The look
+
+Rami's look for a reaction is in taste.md: landscape, no zooms except gentle ones on the comments, the face fullscreen on tangents. Set it in the project's `project.json` (`config.output.aspectRatio`, `config.defaultLayout`, `scenes[].zooms`, `scenes[].layouts`), on the joined source as well, so every version cut from it inherits it.
+
+- A face span is a layout `{"type": "fullscreen-camera", "sourceStartMs", "sourceEndMs", ...}` (copy the fields from a layout Screen Studio wrote). Find each tangent's first and last words in the transcript, and put the switch on the nearest cut when one is within 1.5 s, so the layout changes on a cut. Check that no screen stretch between two face spans is shorter than about 4 s in any version: it flickers.
+- A comment zoom is `{"type": "manual", "zoom": 1.2-1.4, "manualTargetPoint": {"x", "y"}}`. Look at the frames first: the page scrolls, so start the zoom after it settles. Keep the target within `0.5 / zoom` of every edge, or the zoom shows empty space.
+- Screen Studio saves its own state over `project.json` when the project is open: write only while it is closed, and back the file up first.
+
 ## Proven on
 
 The Hank Green reaction (2026-10-22): two Screen Studio recordings, 34:12 and 43:13, joined into one project. The whole version is 49:19 (49 manual cuts and 11 detected retakes); the replies version is 37:19 (34 more removals).

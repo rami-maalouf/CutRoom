@@ -16,6 +16,10 @@ From the Expo team's notes on the SDK 58 video (2026-10-16).
 - **The wrap-up repeats what matters.** End on the few things the viewer must remember (what is new, what is stable, how to upgrade), not "that is it, I could not cover everything".
 - **Lead with what the viewer gets for free.** Frame a feature through the default the viewer already uses ("use Expo Router and you get this, pretty much for free"), then the specific component, with a niche package last. Check the live release post before writing lines: it changes after launch.
 
+## Reactions
+
+- **Landscape and calm, the face on tangents (2026-10-22, Hank Green reaction).** Rami asked for a production look: landscape (Screen Studio output aspect `auto`, the display's 16:9; the 3:4 short look is wrong here), no zooms, except gentle ones in the comment section (1.2-1.4x on the comment being read, one zoom per comment, not Screen Studio's 1.8x click zooms, which in a reaction only follow pause and seek clicks), and Rami's face fullscreen (a `fullscreen-camera` layout) on every tangent: a personal story or an opinion that leaves the video. The intro and outro to camera are fullscreen too. A direct reply to a line keeps the screen, with the camera overlay at 0.3 in the corner.
+
 ## Shorts
 
 - **30 seconds to 3 minutes (2026-10-12, my story).** Aim for 30-90 seconds. Go up to 3 minutes only when the point needs the depth to land (a story whose payoff needs its setup). A clip longer than 3 minutes is not a short: find the strongest part inside it, or split it.

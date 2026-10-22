@@ -131,6 +131,133 @@ def pointer_flags(pieces: list[list]) -> list[str]:
     return flags[:3]
 
 
+# small words: they may differ or drop out between two tellings of one phrase
+# ("both on Android and iOS" / "both in Android and iOS"), and they never count
+# towards the content words a repeat needs
+SMALL_WORDS = {
+    "a", "an", "the", "in", "on", "at", "to", "of", "for", "with", "by", "from", "into", "onto", "over", "under",
+    "about", "as", "and", "or", "but", "so", "i", "you", "we", "they", "he", "she", "it", "this", "that", "these",
+    "those", "my", "your", "our", "their", "its", "me", "us", "them", "is", "are", "was", "were", "be", "been",
+    "being", "am", "do", "does", "did", "have", "has", "had", "will", "would", "can", "could", "should", "may",
+    "might", "must", "not", "um", "uh", "like", "just", "really", "very", "also", "now", "then", "here", "there",
+    "it's", "that's", "there's", "you're", "we're", "they're", "i'm", "we've", "you've", "let's", "gonna", "if",
+    "who", "whom", "whose", "what", "which", "when", "where", "why", "how",
+}
+# a retake or a sentence said again comes within seconds; a recap at the end
+# ("all in the span of two minutes") comes later and is meant, as is an idiom
+# said twice ("every single time")
+REPEAT_WINDOW_S = 12.0  # the second telling starts at most this long after the first
+REPEAT_MIN_CONTENT = 3  # content words both tellings share, in order
+REPEAT_MIN_WORDS = 4  # words in the second telling, small words included
+
+
+def _norm(word: str) -> str:
+    return re.sub(r"[^\w']", "", word.lower()).strip("'")
+
+
+def repeat_flags(pieces: list[list]) -> list[str]:
+    # a phrase said twice close together: a retake the cut kept, or a sentence
+    # that says again what the one before it said. the same content words in the
+    # same order; small words may differ, or one may drop out. the phrase has to
+    # end a clause in one telling (a comma or a stop after it), or the tellings
+    # have to follow each other: two sentences that share an opening and then go
+    # different ways ("pursuing something you don't care about" / "... you deeply
+    # care about") are a parallel, said on purpose
+    words = [(t, w) for piece in pieces for t, w in piece]
+    toks = [_norm(w) for _, w in words]
+    n, flags, after = len(words), [], -1
+    for i in range(n):
+        if i <= after or not toks[i] or toks[i] in SMALL_WORDS:
+            continue
+        for j in range(i + 1, n):
+            if words[j][0] - words[i][0] > REPEAT_WINDOW_S:
+                break
+            if toks[j] != toks[i]:
+                continue
+            a, b, content, end_a, end_b, skips = i, j, 0, i, j, 0
+            while a < j and b < n:
+                if toks[a] == toks[b]:
+                    content += toks[a] not in SMALL_WORDS
+                    end_a, end_b = a, b
+                    a, b = a + 1, b + 1
+                elif toks[a] in SMALL_WORDS and toks[b] in SMALL_WORDS:
+                    a, b = a + 1, b + 1
+                elif skips < 2 and toks[a] in SMALL_WORDS:
+                    a, skips = a + 1, skips + 1
+                elif skips < 2 and toks[b] in SMALL_WORDS:
+                    b, skips = b + 1, skips + 1
+                else:
+                    break
+            clause = any(re.search(r"[.,;:!?]$", words[k][1]) for k in (end_a, end_b)) or end_a + 2 >= j
+            if content >= REPEAT_MIN_CONTENT and end_b - j + 1 >= REPEAT_MIN_WORDS and clause:
+                first = " ".join(w for _, w in words[i:end_a + 1]).strip(",.;:")
+                second = " ".join(w for _, w in words[j:end_b + 1]).strip(",.;:")
+                flags.append(f'says it twice, {words[j][0] - words[i][0]:.0f} s apart: "{first}" / "{second}"')
+                after = end_b
+                break
+    return flags
+
+
+def short_time(t: float, keeps: list) -> float:
+    # a source time (s) as the time in the short (s), from its kept ranges (ms)
+    acc = 0.0
+    for s, e in keeps:
+        if t * 1000 < e:
+            return round(acc + max(0.0, t * 1000 - s) / 1000, 2)
+        acc += (e - s) / 1000
+    return round(acc, 2)
+
+
+def find_words(toks: list[str], phrase: str) -> int | None:
+    # where the short says the phrase: the exact words, or else its content words
+    # in order with any small words between (two transcripts of one take differ
+    # in those: "We got a few more demos" / "got a few more demos")
+    want = [x for x in map(_norm, phrase.split()) if x]
+    if not want:
+        return None
+    exact = next((k for k in range(len(toks) - len(want) + 1) if toks[k:k + len(want)] == want), None)
+    content = [x for x in want if x not in SMALL_WORDS]
+    if exact is not None or not content:
+        return exact
+    for k, tok in enumerate(toks):
+        if tok != content[0]:
+            continue
+        rest, m = content[1:], k + 1
+        while rest and m < len(toks) and (toks[m] == rest[0] or toks[m] in SMALL_WORDS):
+            if toks[m] == rest[0]:
+                rest = rest[1:]
+            m += 1
+        if not rest:
+            return k
+    return None
+
+
+def copy_data(copy: dict, pieces: list[list], keeps: list) -> tuple[dict, list[str]]:
+    # the short's copy for the page: each text with the words it starts on and
+    # when, in the short. a call to action whose words the short does not say is a flag
+    words = [(t, w) for piece in pieces for t, w in piece]
+    toks = [_norm(w) for _, w in words]
+    texts, flags = [], []
+    for item in copy["texts"]:
+        out = {**item, "found": True, "atWords": "", "atSec": 0.0}
+        if item["kind"] == "cta":
+            at = item["at"].strip()
+            if at.lower() == "last sentence":
+                ends = [k for k, (_, w) in enumerate(words[:-1]) if w.endswith((".", "?", "!"))]
+                k = ends[-1] + 1 if ends else 0
+                hit = k if words else None
+            else:
+                hit = find_words(toks, at)
+            if hit is None:
+                out["found"] = False
+                flags.append(f'text "{item["text"].splitlines()[0]}" starts on "{at}", which the short does not say')
+            else:
+                out["atWords"] = " ".join(w for _, w in words[hit:hit + 6])
+                out["atSec"] = short_time(words[hit][0], keeps)
+        texts.append(out)
+    return {"status": copy.get("status", "proposed"), "texts": texts}, flags
+
+
 def short_data(job, short: dict, words: list[dict], starts: list[float]) -> dict:
     # the short as the page needs it: the ranges that play, and its words in
     # them, one list per piece (a piece is one segment of the project file)
@@ -143,9 +270,25 @@ def short_data(job, short: dict, words: list[dict], starts: list[float]) -> dict
             if hi > lo:
                 heard += [i for i in played_words(words, starts, lo, hi) if i not in heard[-1:]]
         pieces.append([[round(words[i]["startMs"] / 1000, 2), words[i]["word"].strip()] for i in heard])
-    return {**short, "where": _where(short), "keeps": [_secs(r) for r in keeps],
-            "seconds": round(sum(e - s for s, e in keeps) / 1000, 2),
-            "pieces": pieces, "flags": edge_flags(pieces) + pointer_flags(pieces)}
+    flags = edge_flags(pieces) + pointer_flags(pieces) + repeat_flags(pieces)
+    out = {**short, "where": _where(short), "keeps": [_secs(r) for r in keeps],
+           "seconds": round(sum(e - s for s, e in keeps) / 1000, 2), "pieces": pieces}
+    if "copy" in short:
+        out["copy"], copy_flags = copy_data(short["copy"], pieces, keeps)
+        flags += copy_flags
+    return {**out, "flags": flags}
+
+
+def short_checks(job) -> list[tuple[str, list[str]]]:
+    # each short's checks, for the terminal: (id, flags), shorts with none left out
+    words = job.plan.words or []
+    starts = [w["startMs"] for w in words]
+    out = []
+    for s in job.data["shorts"]:
+        flags = short_data(job, s, words, starts)["flags"]
+        if flags:
+            out.append((s["id"], flags))
+    return out
 
 
 def review_html(job, media_uri=None, served: bool = False) -> str:
@@ -240,6 +383,7 @@ PAGE = r"""<!doctype html>
     --keep: #34c759; --keep2: #248a3d; --cut: #c7c7cc; --retake: #ff453a; --manual: #ff9f0a; --rejected: #8e8e93;
     --protect: #0a84ff; --short: #5e5ce6; --accent: #0a84ff; --record: #0fa3a3;
     --button: #ffffff; --hover: #c8c8c4; --on-ink: #ffffff; --raw-ink: #b25000; --record-ink: #0b7a7a;
+    --ok-ink: #248a3d;
     color-scheme: light dark;
   }
   /* the page follows the device: dark when the system is dark */
@@ -248,6 +392,7 @@ PAGE = r"""<!doctype html>
       --bg: #141416; --panel: #1e1e21; --ink: #f2f2f4; --muted: #9b9ba1; --line: #333337;
       --keep: #30b350; --keep2: #1f7a35; --cut: #4a4a4e; --short: #8482ff; --record: #2cc4c4;
       --button: #2a2a2e; --hover: #4c4c52; --on-ink: #141416; --raw-ink: #ffb35c; --record-ink: #5fd4d4;
+      --ok-ink: #5fd47c;
     }
   }
   * { box-sizing: border-box; }
@@ -415,6 +560,27 @@ PAGE = r"""<!doctype html>
   .words .w.now { background: rgba(94, 92, 230, .22); }
   .detail textarea { width: 100%; height: 54px; margin-top: 10px; resize: vertical; border: 1px solid var(--line); border-radius: 8px;
                      padding: 7px 9px; font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); }
+  /* the text that goes on the finished short: headline and calls to action, each
+     with the words it starts on; edited here, approved here, sent with the feedback */
+  .copy { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px; }
+  .copy-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .copy-head .label { font-weight: 600; color: var(--ink); }
+  .copy-head .spacer { flex: 1; }
+  .copy-state { font-size: 11px; line-height: 17px; padding: 0 7px; border-radius: 999px; background: var(--bg); }
+  .copy-state.edited { background: rgba(255, 159, 10, .14); color: var(--raw-ink); }
+  .copy button.approve.on { background: var(--keep2); border-color: var(--keep2); color: #fff; }
+  .copy button.approve.on kbd { background: transparent; color: inherit; border-color: currentColor; }
+  .copy button kbd { margin-left: 5px; }
+  .copy-row { margin-top: 8px; }
+  .copy-when { font-size: 11px; color: var(--muted); }
+  .copy-when b { color: var(--ink); font-weight: 600; }
+  .detail .copy textarea { display: block; width: 100%; height: auto; margin-top: 3px; resize: none; overflow: hidden;
+                           border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font: inherit;
+                           font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--ink); background: var(--bg); }
+  .detail .copy textarea:focus { outline: none; border-color: var(--accent); background: var(--panel); }
+  .copy-empty { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+  .copy-empty span { flex: 1; }
+  .row-short .meta .ok { color: var(--ok-ink); }
   .seg.short.active { background: var(--short); color: #fff; }
   /* the shorts tab keeps the decision in view: a shorter player, no colour legend */
   @media (min-width: 701px) { body.shorts-tab video { width: auto; max-width: 100%; height: min(46vh, 560px); margin: 0 auto; } }
@@ -474,6 +640,11 @@ PAGE = r"""<!doctype html>
     .detail { margin-top: 8px; padding: 8px 10px 0; }
     .detail h2 { font-size: 15px; }
     .detail .chips, .detail .scores, .detail p, .detail .words, .detail textarea { display: none; }
+    /* the headline is decided on the phone too */
+    .detail .copy textarea { display: block; }
+    .copy { margin-top: 10px; }
+    .copy button { min-height: 34px; }
+    .copy button kbd { display: none; }
     .decide { margin-top: 8px; }
     .decide button { min-height: 38px; }
     .decide button kbd { display: none; }
@@ -517,7 +688,7 @@ PAGE = r"""<!doctype html>
     <div class="keys"><span><kbd>Space</kbd>play</span><span><kbd>←</kbd><kbd>→</kbd>5 s</span>
       <span><kbd>J</kbd><kbd>L</kbd>10 s</span><span><kbd>&lt;</kbd><kbd>&gt;</kbd>speed</span>
       <span class="short-keys"><kbd>↑</kbd><kbd>↓</kbd>short</span><span class="short-keys"><kbd>P</kbd><kbd>M</kbd><kbd>X</kbd>pick, maybe, reject</span>
-      <span class="short-keys"><kbd>R</kbd>replay</span><span class="short-keys"><kbd>N</kbd>note</span><span class="short-keys"><kbd>V</kbd>9:16</span></div>
+      <span class="short-keys"><kbd>R</kbd>replay</span><span class="short-keys"><kbd>N</kbd>note</span><span class="short-keys"><kbd>A</kbd>approve text</span><span class="short-keys"><kbd>V</kbd>9:16</span></div>
     <div class="detail" id="detail"></div>
   </section>
   <aside class="card">
@@ -792,6 +963,7 @@ document.addEventListener("keydown", (ev) => {
   else if (onShorts && current && (k === "p" || k === "m" || k === "x")) decide({ p: "pick", m: "maybe", x: "reject" }[k]);
   else if (onShorts && current && (k === "r" || k === "Enter")) playShort(shortById(current));
   else if (onShorts && current && k === "n") $("short-note").focus();
+  else if (onShorts && current && k === "a" && copyOf(shortById(current))) approveCopy(shortById(current));
   else if (onShorts && k === "v") $("vertical").click();
   else if (k === " " || k === "k") $("toggle").click();
   else if (k === "ArrowLeft") skip(-5);
@@ -923,13 +1095,19 @@ function feedback() {
   }
   if (maybes.length) lines.push(`Maybe ${maybes.join(", ")}: keep them in shorts, not ready to export yet.`);
   if (nos.length) lines.push(`Remove ${nos.join(", ")} from shorts in ${D.projectFile}.`);
+  const texts = SHORTS.filter(copyEdited).map((s) => [s, cleanTexts(copyOf(s).texts).filter((t) => t.text.trim())])
+    .filter(([, t]) => t.length);
+  if (texts.length) {
+    lines.push(`Text for the shorts: set "copy" on each in ${D.projectFile}:`);
+    texts.forEach(([s, t]) => lines.push(`  ${s.id}: ${JSON.stringify({ status: copyOf(s).status, texts: t })}`));
+  }
   const noted = SHORTS.filter((s) => noteOf(s.id));
   if (noted.length) {
     lines.push("Notes on shorts:");
     noted.forEach((s) => lines.push(`  ${s.id} (${s.title || "untitled"}): ${noteOf(s.id)}`));
   }
   $("feedback").value = lines.join("\n") || "Nothing selected yet.";
-  const n = dropped.size + rejected.size + back.size + SHORTS.filter((s) => statusOf(s.id) !== "review" || noteOf(s.id)).length;
+  const n = dropped.size + rejected.size + back.size + SHORTS.filter((s) => statusOf(s.id) !== "review" || noteOf(s.id) || copyEdited(s)).length;
   $("summary").textContent = n ? `${n} change${n > 1 ? "s" : ""} for the agent` : "No changes yet";
   $("send").disabled = !n;
 }
@@ -1157,7 +1335,8 @@ function renderRows() {
       <div><div class="name">${esc(s.title || s.id)}</div>
         <div class="meta"><span class="id">${s.id}</span>${s.rank ? `<span>#${s.rank}</span>` : ""}${themeChip(s.theme)}
           ${s.flags.length ? `<span class="warn" title="${esc(s.flags.join("\n"))}">${s.flags.length} to check</span>` : ""}
-          ${noteOf(s.id) ? `<span title="${esc(noteOf(s.id))}">note</span>` : ""}</div></div>
+          ${noteOf(s.id) ? `<span title="${esc(noteOf(s.id))}">note</span>` : ""}
+          ${copyOf(s) ? (copyOf(s).status === "approved" ? `<span class="ok">text approved</span>` : `<span>text to approve</span>`) : ""}</div></div>
       <div class="num">${q}${mmss(s.seconds)}</div>
     </div>`;
   }).join("") || `<div class="empty">No shorts match. Clear the search or the filters.</div>`;
@@ -1180,6 +1359,7 @@ function renderDetail() {
       ${btn("pick", "Pick", "P")}${btn("maybe", "Maybe", "M")}${btn("reject", "Reject", "X")}
       <span class="spacer"></span><span class="tag" id="short-clock">${fmt(s.seconds)}</span>
     </div>
+    <div class="copy" id="short-copy"></div>
     <div class="chips">${themeChip(s.theme)}${(s.tags || []).map((x) => `<span class="chip">${esc(x)}</span>`).join("")}
       ${s.flags.map((f) => `<span class="chip warn" title="check the edge: a short has to make sense with no context">${esc(f)}</span>`).join("")}</div>
     ${scores.length ? `<div class="scores">${scores.map(([k, v]) => `<span>${esc(k)} <b>${v}</b></span>`).join("")}</div>` : ""}
@@ -1191,6 +1371,82 @@ function renderDetail() {
   lit = -1;
   $("short-note").oninput = (ev) => { setVerdict(s.id, { note: ev.target.value }); feedback(); };
   $("short-note").onchange = () => renderRows();
+  renderCopy(s);
+}
+// ---------- the text on the finished short ----------
+// the agent proposes it in the project file ("copy"); here it is edited and
+// approved. a change lives in this browser like a note and goes to the agent
+// with the feedback, as the "copy" to put in the project file
+const COPY_KEYS = ["kind", "text", "at", "hold", "until", "end", "top"];
+const cleanTexts = (texts) => texts.map((t) => Object.fromEntries(COPY_KEYS.filter((k) => t[k] !== undefined).map((k) => [k, t[k]])));
+const sameCopy = (a, b) => !!a && !!b && a.status === b.status && JSON.stringify(cleanTexts(a.texts)) === JSON.stringify(cleanTexts(b.texts));
+const fileCopy = (s) => (s.copy ? { status: s.copy.status, texts: s.copy.texts } : null);
+const copyOf = (s) => (verdicts[s.id] && verdicts[s.id].copy) || fileCopy(s);
+// a local copy the project file has caught up with (the agent applied it) is no change
+const copyEdited = (s) => { const local = verdicts[s.id] && verdicts[s.id].copy; return !!local && !sameCopy(local, fileCopy(s)); };
+function setCopy(s, copy) {
+  // a change that brings the copy back to the project file's is no change
+  setVerdict(s.id, { copy: sameCopy(copy, fileCopy(s)) ? undefined : copy });
+  feedback(); renderRows();
+}
+function approveCopy(s) {
+  const c = copyOf(s);
+  setCopy(s, { status: c.status === "approved" ? "proposed" : "approved", texts: c.texts });
+  renderCopy(s);
+}
+// a field is as tall as its text, also when a long line wraps on a phone
+const fit = (ta) => { ta.style.height = "auto"; ta.style.height = `${ta.scrollHeight + 2}px`; };
+function copyWhen(t) {
+  if (t.kind === "headline") return `<b>Headline</b>  ·  from the start`;
+  const last = (t.at || "").trim().toLowerCase() === "last sentence";
+  const until = last || t.until === "end" ? "to the end" : `for ${t.hold || 4.8} s`;
+  if (!t.found) return `<b>Call to action</b>  ·  <span class="warn">starts on "${esc(t.at)}", which the short does not say</span>`;
+  return `<b>Call to action</b>  ·  at ${fmt(t.atSec)} on ${last ? "the last sentence, " : ""}"${esc(t.atWords)}..."  ·  ${until}`;
+}
+function renderCopy(s) {
+  const box = $("short-copy");
+  if (!box) return;
+  const c = copyOf(s);
+  if (!c) {
+    box.innerHTML = `<div class="copy-empty"><span>No text on this short yet. The agent proposes the headline and the calls to action.</span>
+      <button class="small" data-copy-add>Write a headline</button></div>`;
+  } else {
+    box.innerHTML = `<div class="copy-head"><span class="label">Text on the short</span>
+        <span class="copy-state"></span><span class="spacer"></span>
+        <button class="small approve ${c.status === "approved" ? "on" : ""}" data-copy-approve>${c.status === "approved" ? "Approved" : "Approve text"}<kbd>A</kbd></button></div>`
+      + c.texts.map((t, i) => `<div class="copy-row"><div class="copy-when">${copyWhen(t)}</div>
+        <textarea data-copy-i="${i}" rows="1" spellcheck="true"
+          aria-label="${t.kind === "headline" ? "Headline" : "Call to action"}">${esc(t.text)}</textarea></div>`).join("");
+    copyState(s);
+    box.querySelectorAll("textarea").forEach(fit);
+  }
+  box.onclick = (ev) => {
+    if (ev.target.closest("[data-copy-approve]")) approveCopy(s);
+    else if (ev.target.closest("[data-copy-add]")) {
+      setCopy(s, { status: "proposed", texts: [{ kind: "headline", text: "", found: true, atWords: "", atSec: 0 }] });
+      renderCopy(s);
+      box.querySelector("textarea").focus();
+    }
+  };
+  box.oninput = (ev) => {
+    const i = ev.target.dataset.copyI;
+    if (i === undefined) return;
+    fit(ev.target);
+    const now = copyOf(s), texts = now.texts.map((t, k) => (k === +i ? { ...t, text: ev.target.value } : t));
+    // an edit takes the approval back: the new words are approved again
+    setCopy(s, { status: "proposed", texts });
+    copyState(s);
+  };
+}
+// the state next to the title: proposed or edited; once approved, the green button says it
+function copyState(s) {
+  const head = $("short-copy").querySelector(".copy-state"), b = $("short-copy").querySelector("[data-copy-approve]");
+  const approved = copyOf(s).status === "approved", edited = copyEdited(s);
+  head.className = `copy-state ${edited ? "edited" : "proposed"}`;
+  head.textContent = approved ? "" : edited ? "Edited" : "Proposed";
+  head.hidden = approved;
+  b.classList.toggle("on", approved);
+  b.firstChild.textContent = approved ? "Approved" : "Approve text";
 }
 $("detail").onclick = (ev) => {
   const s = current && shortById(current);
@@ -1298,7 +1554,7 @@ tab = TABS[asked] ? asked
   : D.story && !(FOLDER && D.selects.length) ? "story"
   : D.shorts.length && (!FOLDER || (!VLOG && !D.selects.length)) ? "shorts"
   : FOLDER ? "vlog" : "decisions";
-const HINTS = { shorts: "pick, maybe or reject each short, add notes, then copy this",
+const HINTS = { shorts: "pick, maybe or reject each short, approve its text, add notes, then copy this",
   inclusions: "bring back the moments that deserve a place, then copy this" };
 const hint = FOLDER ? "toggle Drop or Reject, then copy this" : "toggle Reject, then copy this";
 function renderTabs() {

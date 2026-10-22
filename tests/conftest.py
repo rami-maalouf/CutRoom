@@ -54,15 +54,17 @@ def write_transcript(cache: Path, words: list[tuple[float, float, str]]) -> None
 
 
 def make_screenstudio(root: Path, sessions: list[list[tuple[str, float]]],
-                      clicks: list[float] = (), keys: list[float] = ()) -> Path:
+                      clicks: list[float] = (), keys: list[float] = (),
+                      system: list[list[tuple[str, float]]] | None = None) -> Path:
     # a minimal .screenstudio package: one recording scene covering everything,
     # one mic file per session, and input events on screen studio's process clock.
     # session i starts on that clock at 10000 + 100000 * i ms; clicks/keys are given
     # in seconds on the concatenated timeline and converted back to that clock.
+    # system: the computer's own sound per session (a video playing), same lengths
     pkg = root / "demo.screenstudio"
     rec = pkg / "recording"
     rec.mkdir(parents=True)
-    meta_sessions, offset = [], 0.0
+    meta_sessions, system_sessions, offset = [], [], 0.0
     clock = []
     for i, pattern in enumerate(sessions):
         name = f"channel-2-microphone-{i}.m4a"
@@ -71,6 +73,9 @@ def make_screenstudio(root: Path, sessions: list[list[tuple[str, float]]],
         start = 10000 + 100000 * i
         meta_sessions.append({"durationMs": dur, "outputFilename": name,
                               "processTimeStartMs": start, "processTimeEndMs": start + dur})
+        if system is not None:
+            make_audio(rec / f"channel-1-system-audio-{i}.m4a", system[i])
+            system_sessions.append({**meta_sessions[-1], "outputFilename": f"channel-1-system-audio-{i}.m4a"})
         clock.append((offset, start, dur))
         offset += dur
 
@@ -84,7 +89,8 @@ def make_screenstudio(root: Path, sessions: list[list[tuple[str, float]]],
     (rec / "metadata.json").write_text(json.dumps({"recorders": [
         {"id": "channel-0-input", "type": "input", "sessions": []},
         {"id": "channel-2-microphone", "type": "microphone", "sessions": meta_sessions},
-    ]}))
+    ] + ([{"id": "channel-1-system-audio", "type": "systemAudio", "sessions": system_sessions}]
+         if system is not None else [])}))
     (rec / "mouseclicks-0.json").write_text(json.dumps(
         [{"type": "mouseDown", "processTimeMs": to_clock(t)} for t in clicks]
         + [{"type": "mouseUp", "processTimeMs": to_clock(t) + 80} for t in clicks]))

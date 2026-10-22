@@ -1,6 +1,7 @@
 # the one cut-planning flow shared by every input type: silences, retakes,
 # manual cuts, keeps, action protection, cleanup. adapters supply sessions
-# (and optionally on-screen action times) and turn the final cut list into output.
+# (and optionally on-screen action times, and a second audio source that is
+# content too: the video a reaction watches) and turn the final cut list into output.
 
 import json
 import sys
@@ -38,9 +39,18 @@ class Plan:
     keeps_forced: list[Edit] = field(default_factory=list)
     sentences: list[dict] = field(default_factory=list)
     words: list[dict] | None = None
+    # the other voice (a reaction's video): never in sentences or retakes, but
+    # it counts as speech wherever the cut asks whether a moment has words
+    heard_words: list[dict] = field(default_factory=list)
     protected: list[Range] = field(default_factory=list)
     protected_ms: float = 0.0
     absorbed: list[Range] = field(default_factory=list)
+
+    @property
+    def all_words(self) -> list[dict]:
+        if not self.heard_words:
+            return self.words or []
+        return sorted((self.words or []) + self.heard_words, key=lambda w: w["startMs"])
 
     @property
     def keeps(self) -> list[Range]:
@@ -75,11 +85,16 @@ def plan_cuts(sessions: list[dict], args, cache: Path | None,
               action_ms: list[float] | None = None,
               edits: dict[str, list[Edit]] | None = None,
               scopes: list[Range] | None = None,
-              need_words: bool = False) -> Plan:
+              need_words: bool = False,
+              heard: list[dict] | None = None,
+              heard_cache: Path | None = None) -> Plan:
     # scopes: when an editor has chosen moments (a folder's selects and shorts),
     # a retake cut only applies if it lies completely inside one of them. in
     # conversations short phrases repeat naturally ("there you go"), and a cut
     # that crosses a chosen moment's edge would override the editor's choice.
+    # heard: sessions of a second audio source on the same timeline that is
+    # content too (a reaction's video). a pause is only a pause where both are
+    # quiet, and a retake cut never removes its sound.
     total_ms = sum(s["durationMs"] for s in sessions)
     plan = Plan(total_ms=total_ms)
     interactive = sys.stdin.isatty() and not args.yes
@@ -91,13 +106,30 @@ def plan_cuts(sessions: list[dict], args, cache: Path | None,
 
     # silence detection (ffmpeg) and transcription (whisper) are independent;
     # run them side by side
-    with ThreadPoolExecutor(2) as pool:
+    def transcribe_all():
+        # one after the other: both use the same model
+        words = transcribe_sessions(sessions, cache, args.backend)
+        return words, transcribe_sessions(heard, heard_cache, args.backend) if heard else []
+
+    with ThreadPoolExecutor(3) as pool:
         silences_job = pool.submit(collect_silences, sessions, args.noise, args.min_silence)
+        heard_job = pool.submit(collect_silences, heard, args.noise, args.min_silence) if heard else None
         words_job = None
-        if not args.no_retakes or need_words:
-            words_job = pool.submit(transcribe_sessions, sessions, cache, args.backend)
+        if not args.no_retakes or need_words or heard:
+            words_job = pool.submit(transcribe_all)
         silences = silences_job.result()
-        words = words_job.result() if words_job else None
+        heard_silences = heard_job.result() if heard_job else None
+        words, heard_words = words_job.result() if words_job else (None, [])
+
+    # where the other voice sounds: never cut by a pause or a retake
+    heard_sound: list[Range] = []
+    if heard_silences is not None:
+        heard_words, dropped = drop_hallucinated_words(heard_words, heard_silences)
+        if dropped:
+            print(f"dropped {len(dropped)} hallucinated words in the system audio (inside silence)")
+        plan.heard_words = heard_words
+        heard_sound = invert_cuts(merge_ranges(heard_silences), total_ms)
+        print(f"system audio: {len(heard_words)} words, sound in {sum(e - s for s, e in heard_sound) / 1000:.1f}s")
 
     # retake cuts: numbered in detection order so ids stay stable between runs.
     # a keep range overlapping a retake rejects it; the rest are reviewed one by one.
@@ -125,7 +157,14 @@ def plan_cuts(sessions: list[dict], args, cache: Path | None,
         for cut in retakes:
             cut["status"] = "cut" if cut["id"] in accepted else "rejected"
         plan.decisions += retakes
-        approved += [(c["startMs"], c["endMs"]) for c in retakes if c["status"] == "cut"]
+        retake_ranges = [(c["startMs"], c["endMs"]) for c in retakes if c["status"] == "cut"]
+        if heard_sound:
+            # a redo said after the video played on: the bad take goes, the video stays
+            trimmed = subtract_ranges(retake_ranges, heard_sound, MIN_CUT_MS)
+            if sum(e - s for s, e in trimmed) < sum(e - s for s, e in retake_ranges) - 1:
+                print("  retake cuts keep the system audio that plays inside them")
+            retake_ranges = trimmed
+        approved += retake_ranges
 
     # manual cuts (project file, then --cut): retakes the detector missed
     manual = list(edits["cuts"]) + [
@@ -148,6 +187,9 @@ def plan_cuts(sessions: list[dict], args, cache: Path | None,
     # silence cuts: batch approval by default (there are usually hundreds).
     # they never touch protected actions or keep ranges.
     if not args.no_silences:
+        if heard_sound:
+            # a pause is where both are quiet, and at least as long as any pause
+            silences = subtract_ranges(silences, heard_sound, args.min_silence * 1000)
         cuts = silence_cuts(silences, args.trail * 1000, args.lead * 1000, total_ms)
         if plan.protected:
             unprotected = subtract_ranges(cuts, plan.protected, MIN_CUT_MS)
@@ -179,7 +221,7 @@ def plan_cuts(sessions: list[dict], args, cache: Path | None,
     # cleanup layer: absorb tiny wordless fragments left between approved cuts.
     # keep ranges win over everything, including manual cuts that overlap them.
     cleaned, plan.absorbed = cleanup_cuts(
-        merge_ranges(approved), total_ms, plan.words, args.min_keep * 1000,
+        merge_ranges(approved), total_ms, plan.all_words if words is not None else None, args.min_keep * 1000,
         protected=plan.protected + keep_ranges,
     )
     plan.final_cuts = subtract_ranges(cleaned, keep_ranges) if keep_ranges else cleaned
@@ -202,6 +244,11 @@ def plan_data(plan: Plan, source: Path) -> dict:
             {"start": round(s["startMs"] / 1000, 3), "end": round(s["endMs"] / 1000, 3), "text": s["text"]}
             for s in plan.sentences
         ],
+        # a reaction: what the video says, for reading the two voices side by side
+        **({"heardSentences": [
+            {"start": round(s["startMs"] / 1000, 3), "end": round(s["endMs"] / 1000, 3), "text": s["text"]}
+            for s in words_to_sentences(plan.heard_words)
+        ]} if plan.heard_words else {}),
         "decisions": [
             {"id": d["id"], "start": round(d["startMs"] / 1000, 3), "end": round(d["endMs"] / 1000, 3),
              "reason": d["reason"], "status": d["status"], "removed": d.get("removed", []),

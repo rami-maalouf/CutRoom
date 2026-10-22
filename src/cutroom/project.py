@@ -11,7 +11,7 @@
 #                that explains what the footage cannot          (P1, P2, ...)
 #   inclusions   folders: every moment worth judging in the footage, each
 #                "in" or "out" of the vlog with the reason why  (I1, I2, ...)
-#   style        "talking-head", "explainer" or "vlog" (default: vlog for a folder)
+#   style        "talking-head", "explainer", "reaction" or "vlog" (default: vlog for a folder)
 #   ignore       folders: patterns for files that are not footage, e.g.
 #                "*-bad-quality.mp4" (matched against the path inside the folder)
 #
@@ -52,7 +52,7 @@ from .screenstudio import is_screenstudio
 VERSION = 2
 # the kind of video: decides the defaults (see STYLE_DEFAULTS in cli.py) and
 # which instructions the agent follows (skills/cutroom/references/<style>.md)
-STYLES = ("talking-head", "explainer", "vlog")
+STYLES = ("talking-head", "explainer", "reaction", "vlog")
 # free text on selects and shorts: shown on the review page and in the read-through
 TEXT_FIELDS = ("chapter", "beat", "role", "intent", "title", "why", "theme")
 PICKUP_KINDS = ("talking-head", "voiceover")

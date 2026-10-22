@@ -1,11 +1,13 @@
 # cutroom command line.
 #
 #   cutroom project <recording.screenstudio>   cut a screen studio project (no re-encode)
+#   cutroom join <a.screenstudio> <b...>       one screen studio project that plays several recordings
 #   cutroom video <file.mp4>                   cut any video file (mp4 render or fcpxml)
 #   cutroom digest <folder>                    transcribe a folder of clips, write agent digest shards
 #   cutroom candidates <folder>                check agents' candidates, turn them into selects
 #   cutroom review <source>                    review page: plays the cut without rendering
 #   cutroom script <source>                    read-through: the cut as a script, for story review
+#   cutroom check <source> [M3 R1 ...]         every cut as it sounds: the words heard on both sides
 #   cutroom export <source> vlog|S1|V1 ...     export the vlog, shorts or selects from the clean cut
 #   cutroom import <video> <timeline.fcpxml>   bring edits made in final cut back
 #   cutroom transcribe <media>...              word-level transcript cache only
@@ -25,22 +27,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import __version__, folder, project
-from .core import (Range, clean_segments, drop_hallucinated_words, invert_cuts, merge_ranges,
+from .core import (Range, clean_segments, drop_hallucinated_words, invert_cuts, join_window, merge_ranges,
                    resolve_pacing, snap_range, subtract_ranges)
 from .fcpxml import read_keeps, write_fcpxml, write_timeline
 from .media import collect_silences, frame_strip, probe_video, render, require_ffmpeg, versioned_output
 from .pipeline import Plan, plan_cuts, write_report
 from .review import write_review
 from .script import build_script, script_path
-from .screenstudio import (action_times, check_package, edited_ranges, is_screenstudio, mic_sessions,
-                           write_cut_package)
-from .transcribe import transcribe_sessions, transcribe_shown
+from .screenstudio import (action_times, check_package, edited_ranges, is_screenstudio, join_packages,
+                           mic_sessions, system_audio_sessions, write_cut_package)
+from .transcribe import load_audio_16k, pick_backend, transcribe_samples, transcribe_sessions, transcribe_shown
 from .transfer import find_short
 
 
 def add_cut_options(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--pacing", choices=["tight", "balanced", "relaxed"], default=None,
-                    help="how rigorous silence cutting is (default by style: talking-head and explainer balanced, vlog relaxed)")
+                    help="how rigorous silence cutting is (default by style: vlog relaxed, the others balanced)")
     ap.add_argument("--noise", type=float, default=-35.0, help="silence threshold in dB")
     ap.add_argument("--min-silence", type=float, default=None, help="min silence duration in seconds")
     ap.add_argument("--trail", type=float, default=None,
@@ -69,8 +71,11 @@ def add_cut_options(ap: argparse.ArgumentParser) -> None:
                     help="cut long pauses (default for talking heads and explainers)")
     ap.add_argument("--review-silences", action="store_true",
                     help="approve silence cuts one by one instead of as a batch")
-    ap.add_argument("--no-protect-actions", action="store_true",
-                    help="screen studio: let silence cuts remove pauses that contain clicks or keystrokes")
+    ap.add_argument("--no-protect-actions", dest="no_protect_actions", action="store_true", default=None,
+                    help="screen studio: let silence cuts remove pauses that contain clicks or keystrokes "
+                         "(default for reactions, where a click pauses or seeks the video)")
+    ap.add_argument("--protect-actions", dest="no_protect_actions", action="store_false",
+                    help="screen studio: keep pauses that contain clicks or keystrokes (default except for reactions)")
     ap.add_argument("--action-before", type=float, default=0.5,
                     help="screen studio: seconds kept on screen before a click or keystroke")
     ap.add_argument("--action-after", type=float, default=1.0,
@@ -90,6 +95,7 @@ class Job:
     offsets: dict[str, float] | None  # folder: clip -> start on the timeline (ms)
     program: list[tuple] = field(default_factory=list)   # (start_ms, end_ms, select id)
     chapters: dict[int, str] = field(default_factory=dict)
+    heard: list[dict] = field(default_factory=list)       # a reaction's video: system audio sessions
 
     @property
     def exports(self) -> Path:
@@ -104,7 +110,8 @@ class Job:
         # snap chosen ranges to words, never past the edges of their own clip,
         # then keep only their clean parts. a raw moment plays as it happened:
         # only manual cuts are taken out of it.
-        if self.plan.words:
+        words = self.plan.all_words
+        if words:
             bounds, acc = [], 0.0
             for sess in self.sessions:
                 bounds.append((acc, acc + sess["durationMs"]))
@@ -112,7 +119,7 @@ class Job:
             snapped = []
             for s, e in ranges:
                 b0, b1 = next(((a, b) for a, b in bounds if a <= s < b), (0.0, acc))
-                a, b = snap_range(self.plan.words, s, e)
+                a, b = snap_range(words, s, e)
                 snapped.append((max(a, b0), min(b, b1)))
             ranges = snapped
         if raw:
@@ -144,16 +151,25 @@ class Job:
 # what each kind of video needs by default; explicit flags always win
 STYLE_DEFAULTS = {
     # one speaker, one take after another: a repeated opening is a mistake
-    "talking-head": {"pacing": "balanced", "no_retakes": False, "no_silences": False},
+    "talking-head": {"pacing": "balanced", "no_retakes": False, "no_silences": False,
+                     "no_protect_actions": False},
     # a talking head that also demos and shows the screen: the same cuts (screen
     # studio keeps the pauses that hold a click or keystroke); what differs is
     # what the agent checks (skills/cutroom/references/explainer.md)
-    "explainer": {"pacing": "balanced", "no_retakes": False, "no_silences": False},
+    "explainer": {"pacing": "balanced", "no_retakes": False, "no_silences": False,
+                  "no_protect_actions": False},
+    # someone watching a video and commenting on it: the video's sound (screen
+    # studio's system audio) is content too, so a pause is only cut where both
+    # are quiet, and a retake never cuts into the video. clicks pause and seek
+    # the video, so they protect nothing
+    "reaction": {"pacing": "balanced", "no_retakes": False, "no_silences": False,
+                 "no_protect_actions": True},
     # real moments: fumbles and crosstalk are part of the story, and a scene
     # plays as filmed: a pause inside it is a reaction or action, and a cut
     # there is a jump in the picture. the editor removes dead stretches by
     # choosing ranges; --silences brings automatic pause cuts back
-    "vlog": {"pacing": "relaxed", "no_retakes": True, "no_silences": True},
+    "vlog": {"pacing": "relaxed", "no_retakes": True, "no_silences": True,
+             "no_protect_actions": False},
 }
 
 
@@ -166,37 +182,50 @@ def apply_style(args, style: str) -> None:
           f"pause cuts {'off' if args.no_silences else 'on'})")
 
 
-def open_source(path: Path, args) -> tuple[str, Path, list[dict], list[float]]:
-    # (kind, resolved source, sessions, on-screen action times)
+def open_source(path: Path) -> tuple[str, Path, list[dict]]:
+    # (kind, resolved source, sessions)
     src = path.resolve()
     if is_screenstudio(src):
         print(f"screen studio project version: {check_package(src)}")
         sessions = mic_sessions(src)
         total_s = sum(s["durationMs"] for s in sessions) / 1000
         print(f"mic sessions: {len(sessions)}, total {total_s:.1f}s")
-        actions = [] if args.no_protect_actions else action_times(src, sessions)
-        return "screenstudio", src, sessions, actions
+        return "screenstudio", src, sessions
     if src.is_dir():
         sessions = folder.sessions(src)
         if not sessions:
             sys.exit(f"no video files in {src}")
         total_s = sum(s["durationMs"] for s in sessions) / 1000
         print(f"folder: {len(sessions)} clips, {total_s / 3600:.2f} h")
-        return "folder", src, sessions, []
+        return "folder", src, sessions
     if not src.is_file():
         sys.exit(f"not a video file, folder or .screenstudio project: {src}")
     duration_ms, has_audio = probe_video(src)
     if not has_audio:
         sys.exit("video has no audio track - nothing to analyze")
     print(f"video: {src.name}, {duration_ms / 1000:.1f}s")
-    return "video", src, [{"path": src, "durationMs": duration_ms}], []
+    return "video", src, [{"path": src, "durationMs": duration_ms}]
+
+
+def heard_audio(kind: str, src: Path, style: str) -> list[dict]:
+    # a reaction's other voice: the video being watched. a screen studio project
+    # records it apart from the mic (system audio); in a single video file both
+    # share one track, so the mic's own silences already include it
+    if style != "reaction" or kind != "screenstudio":
+        return []
+    sessions = system_audio_sessions(src)
+    if not sessions:
+        print("note: this recording has no system audio, so the cut follows the mic alone")
+    return sessions
 
 
 def make_plan(path: Path, args) -> Job:
-    kind, src, sessions, actions = open_source(path, args)
+    kind, src, sessions = open_source(path)
     offsets = folder.offsets(sessions) if kind == "folder" else None
     data = project.load(src, set(offsets) if offsets is not None else None)
     apply_style(args, data["style"])
+    actions = action_times(src, sessions) if kind == "screenstudio" and not args.no_protect_actions else []
+    heard = heard_audio(kind, src, data["style"])
     edits = {"cuts": project.edit_ranges(data, "cuts", offsets),
              "keeps": project.edit_ranges(data, "keeps", offsets)}
     if edits["cuts"] or edits["keeps"] or data["selects"] or data["shorts"]:
@@ -207,7 +236,8 @@ def make_plan(path: Path, args) -> Job:
     if kind == "folder" and (data["selects"] or data["shorts"]):
         scopes = [r for item in data["selects"] + data["shorts"] for r in project.segments(item, offsets)]
     need_words = kind == "folder" or bool(data["selects"] or data["shorts"])
-    plan = plan_cuts(sessions, args, cache, actions, edits, scopes, need_words)
+    heard_cache = src.with_suffix(".system.transcript.json") if heard else None
+    plan = plan_cuts(sessions, args, cache, actions, edits, scopes, need_words, heard, heard_cache)
     if kind == "screenstudio":
         # respect the edit already made in screen studio: what it hides counts as cut
         shown = edited_ranges(src)
@@ -218,7 +248,7 @@ def make_plan(path: Path, args) -> Job:
                               if any(e > d["startMs"] and s < d["endMs"] for s, e in shown)]
             print(f"screen studio edit: {sum(e - s for s, e in shown) / 1000:.1f}s of "
                   f"{plan.total_ms / 1000:.1f}s shown before cutroom")
-    job = Job(kind, src, sessions, plan, data, offsets)
+    job = Job(kind, src, sessions, plan, data, offsets, heard=heard)
 
     # the program: the selects in their order when there are any, else the whole clean cut
     selected = project.selects(data, offsets)
@@ -271,6 +301,14 @@ def run_project(args) -> None:
         print("selects: keeping their content in recorded order (screen studio projects are not reordered)")
         cuts = invert_cuts(merge_ranges([(s, e) for s, e, _ in job.program]), job.plan.total_ms)
     write_cut_package(job.src, cuts, args.output)
+
+
+def run_join(args) -> None:
+    sources = [path.resolve() for path in args.projects]
+    for src in sources:
+        if not is_screenstudio(src):
+            sys.exit(f"not a .screenstudio project: {src}")
+    join_packages(sources, args.output)
 
 
 def run_video(args) -> None:
@@ -328,6 +366,70 @@ def run_script(args) -> None:
     print(f"\nwrote read-through: {dst}")
     if args.print:
         print("\n" + text)
+
+
+class _Audio:
+    # 16 khz samples of the timeline, both voices of a reaction mixed, each
+    # session decoded once when first needed
+    def __init__(self, sessions: list[dict], heard: list[dict]):
+        self.sessions, self.heard, self.decoded, self.offsets = sessions, heard, {}, []
+        acc = 0.0
+        for s in sessions:
+            self.offsets.append(acc)
+            acc += s["durationMs"]
+
+    def _session(self, i: int):
+        import numpy as np
+
+        if i not in self.decoded:
+            s = self.sessions[i]
+            x = load_audio_16k(s["path"]) if s.get("hasAudio", True) else np.zeros(0, np.float32)
+            if self.heard:
+                y = load_audio_16k(self.heard[i]["path"])
+                n = max(len(x), len(y))
+                x = np.pad(x, (0, n - len(x))) + np.pad(y, (0, n - len(y)))
+            self.decoded[i] = x
+        return self.decoded[i]
+
+    def samples(self, start_ms: float, end_ms: float):
+        import numpy as np
+
+        out = []
+        for i, (off, s) in enumerate(zip(self.offsets, self.sessions)):
+            lo, hi = max(start_ms, off), min(end_ms, off + s["durationMs"])
+            if hi > lo:
+                x = self._session(i)
+                out.append(x[int((lo - off) * 16):int((hi - off) * 16)])
+        return np.concatenate(out) if out else np.zeros(0, np.float32)
+
+
+def run_check(args) -> None:
+    # every cut as it sounds: the kept audio around each join (a reaction's two
+    # voices mixed), transcribed as a short clip of its own. a long transcript
+    # drifts by up to a second after pauses and drops speech that repeats (a
+    # replay), so it cannot show what a join really plays
+    import numpy as np
+
+    args.yes = True
+    job = make_plan(args.source, args)
+    wanted = {i.upper() for i in args.ids}
+    cuts = [d for d in job.plan.decisions if d["status"] == "cut" and (not wanted or d["id"].upper() in wanted)]
+    if not cuts:
+        sys.exit("no cuts to check" + (f" among {', '.join(args.ids)}" if args.ids else ""))
+    audio, backend = _Audio(job.sessions, job.heard), pick_backend(args.backend)
+    keeps = job.plan.keeps
+    print(f"\nchecking {len(cuts)} cuts by ear ({args.seconds:g}s each side)")
+    for d in cuts:
+        pieces, join = join_window(keeps, d["startMs"], d["endMs"], args.seconds * 1000)
+        if not pieces:
+            continue
+        clip = np.concatenate([audio.samples(a, b) for a, b in pieces])
+        words = transcribe_samples(clip, backend)
+        left = " ".join(w for s, e, w in words if (s + e) * 500 < join)
+        right = " ".join(w for s, e, w in words if (s + e) * 500 >= join)
+        note = d.get("note") or d["reason"]
+        print(f"{d['id']:>4} {d['startMs'] / 1000:.1f}-{d['endMs'] / 1000:.1f}s  {note}")
+        print(f"      ...{left[-100:]} || {right[:100]}...")
 
 
 def run_digest(args) -> None:
@@ -637,6 +739,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--output", type=Path, default=None, help="output package path")
     p.set_defaults(run=run_project)
 
+    p = sub.add_parser("join", help="one .screenstudio project that plays several recordings in order (no re-encode)")
+    p.add_argument("projects", type=Path, nargs="+", metavar="PROJECT",
+                   help="recordings from one setup, in play order; the first one's look and layout are kept")
+    p.add_argument("--output", type=Path, default=None, help="output package path (default <first>-joined.screenstudio)")
+    p.set_defaults(run=run_join)
+
     p = sub.add_parser("video", help="cut a video file (renders mp4 or writes fcpxml)")
     p.add_argument("video", type=Path)
     add_cut_options(p)
@@ -700,6 +808,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("video", type=Path)
     p.add_argument("timeline", type=Path, help="fcpxml exported from final cut pro (file > export xml)")
     p.set_defaults(run=run_import)
+
+    p = sub.add_parser("check", help="every retake and manual cut as it sounds: the words heard on both sides of the join")
+    p.add_argument("source", type=Path)
+    p.add_argument("ids", nargs="*", metavar="ID", help="only these cuts (R3, M12, ...); default every cut")
+    p.add_argument("--seconds", type=float, default=6.0, help="seconds heard on each side of a join (default 6)")
+    add_cut_options(p)
+    p.set_defaults(run=run_check)
 
     p = sub.add_parser("frames", help="a grid of frames over what a short or select plays, to see the picture")
     p.add_argument("source", type=Path)

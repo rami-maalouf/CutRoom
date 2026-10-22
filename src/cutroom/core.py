@@ -370,6 +370,30 @@ def snap_range(words: list[dict], start_ms: float, end_ms: float,
     return min(start, start_ms), max(end, end_ms)
 
 
+def join_window(keeps: list[Range], start_ms: float, end_ms: float,
+                around_ms: float) -> tuple[list[Range], float]:
+    # the kept audio on both sides of a cut, as it plays: up to around_ms before
+    # the cut and after it, and where in those pieces the join falls (ms)
+    before = [k for k in keeps if k[1] <= start_ms + 50]
+    after = [k for k in keeps if k[0] >= end_ms - 50]
+    pieces, need = [], around_ms
+    for s, e in reversed(before):
+        take = min(need, e - s)
+        pieces.insert(0, (e - take, e))
+        need -= take
+        if need <= 0:
+            break
+    join = sum(e - s for s, e in pieces)
+    need = around_ms
+    for s, e in after:
+        take = min(need, e - s)
+        pieces.append((s, s + take))
+        need -= take
+        if need <= 0:
+            break
+    return pieces, join
+
+
 def clean_segments(keeps: list[Range], ranges: list[Range], min_ms: float = 50.0) -> list[Range]:
     # the clean parts of each range, in the ranges' own order (a select list or
     # a short may reorder the source)

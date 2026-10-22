@@ -3,7 +3,8 @@
 # problems without watching: a payoff with no setup, two moments that do not
 # connect, an intro that does not hook. " / " marks a cut inside a moment.
 # talking heads still to record (pickups) appear where they will play, and the
-# moments judged out of the vlog (inclusions) are listed at the end.
+# moments judged out of the vlog (inclusions) are listed at the end. in a
+# reaction the video being watched speaks too: its lines are marked "video:".
 
 from pathlib import Path
 
@@ -17,12 +18,22 @@ def _clock(seconds: float) -> str:
     return f"{m}:{s / 10:04.1f}"
 
 
-def _spoken(words: list[dict], starts: list[float], segments: list[tuple]) -> str:
+def _spoken(words: list[dict], starts: list[float], segments: list[tuple],
+            heard: list[dict] = (), heard_starts: list[float] = ()) -> str:
+    # with a second voice (a reaction's video), each change of voice is marked
     parts = []
     for s, e, *_ in segments:
-        text = " ".join(words[i]["word"] for i in played_words(words, starts, s, e))
+        said = [(words[i]["startMs"], "me:", words[i]["word"]) for i in played_words(words, starts, s, e)]
+        said += [(heard[i]["startMs"], "video:", heard[i]["word"])
+                 for i in played_words(heard, heard_starts, s, e)]
+        text, voice = [], None
+        for _, who, word in sorted(said):
+            if heard and who != voice:
+                text.append(who)
+                voice = who
+            text.append(word)
         if text:
-            parts.append(text)
+            parts.append(" ".join(text))
     return " / ".join(parts) or "(no speech)"
 
 
@@ -41,6 +52,8 @@ def _pickup(p: dict) -> list[str]:
 def build_script(job) -> str:
     words = job.plan.words or []
     starts = [w["startMs"] for w in words]
+    heard = job.plan.heard_words
+    heard_starts = [w["startMs"] for w in heard]
     total = sum(r[1] - r[0] for r in job.program) / 1000
     pickups = job.data["pickups"]
     after = project.pickups_after(job.data)
@@ -59,10 +72,13 @@ def build_script(job) -> str:
         # sentence at its time in the cut; " / " marks a cut inside a sentence
         at = 0.0
         for s, e, *_ in job.program:
-            piece = [words[i] for i in played_words(words, starts, s, e)]
-            for sent in words_to_sentences(piece):
+            lines = []
+            for label, ws, st in (("", words, starts), ("video: ", heard, heard_starts)):
+                piece = [ws[i] for i in played_words(ws, st, s, e)]
+                lines += [(sent["startMs"], label, sent["text"]) for sent in words_to_sentences(piece)]
+            for start, label, text in sorted(lines, key=lambda x: x[0]):
                 # a word whisper started inside the cut before it plays from the cut on
-                out.append(f"[{_clock(at + (max(sent['startMs'], s) - s) / 1000)}] {sent['text']}")
+                out.append(f"[{_clock(at + (max(start, s) - s) / 1000)}] {label}{text}")
             at += (e - s) / 1000
         return "\n".join(out + tail) + "\n"
 
@@ -83,7 +99,7 @@ def build_script(job) -> str:
         source = f"{item['clip']} {_clock(item['start'])}-{_clock(item['end'])}" if "clip" in item \
             else f"{_clock(item['start'])}-{_clock(item['end'])}"
         out.append(f"source: {source}" + ("" if segs else "  (NOTHING LEFT AFTER CUTS)"))
-        out.append(f"> {_spoken(words, starts, segs)}" if segs else "> (empty)")
+        out.append(f"> {_spoken(words, starts, segs, heard, heard_starts)}" if segs else "> (empty)")
         out.append("")
         at += length
         for p in after.get(item["id"], []):

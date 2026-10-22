@@ -1,6 +1,6 @@
 ---
 name: cutroom
-description: Edit real footage into a finished cut with the cutroom CLI - a talking-head recording (one take, a podcast-style video), an explainer (a demo or walkthrough that switches between camera, screen and live demos, like an Expo product video or a Screen Studio project) or a vlog (a folder of clips from a shoot or event). Quick clean-ups remove silences and retakes; full edits are story-first - transcripts (and for vlogs, contact sheets and a clip log) feed a story outline the user approves, the cut follows the story, and the user reviews on a page that plays the cut without rendering, then exports FCPXML, an mp4, a Screen Studio project, or short-form clips. Use when the user asks to clean up, cut, edit, tighten or "process" a recording, "remove the silences and repeats", make a vlog from a folder of clips, wants short-form clip ideas from a long video, says "export S3" / "take clip 5 for a short", reviews or iterates on a cut (also on a phone), wants a short as its own Screen Studio project, or brings back an FCPXML edited in Final Cut.
+description: Edit real footage into a finished cut with the cutroom CLI - a talking-head recording (one take, a podcast-style video), an explainer (a demo or walkthrough that switches between camera, screen and live demos, like an Expo product video or a Screen Studio project), a reaction (someone watching a video and commenting on it) or a vlog (a folder of clips from a shoot or event). Quick clean-ups remove silences and retakes; full edits are story-first - transcripts (and for vlogs, contact sheets and a clip log) feed a story outline the user approves, the cut follows the story, and the user reviews on a page that plays the cut without rendering, then exports FCPXML, an mp4, a Screen Studio project, or short-form clips. Use when the user asks to clean up, cut, edit, tighten or "process" a recording, "remove the silences and repeats", make a vlog from a folder of clips, wants short-form clip ideas from a long video, says "export S3" / "take clip 5 for a short", reviews or iterates on a cut (also on a phone), wants a short as its own Screen Studio project, wants several Screen Studio recordings joined into one project, or brings back an FCPXML edited in Final Cut.
 ---
 
 # cutroom
@@ -21,6 +21,7 @@ Missing: `uv tool install git+https://github.com/rami-maalouf/CutRoom` (needs `u
 |---|---|
 | one recording of one person talking: a talk to camera, a story, an interview, a podcast | `talking-head` |
 | one person teaching or demoing, switching between camera, screen (code, diagrams, dashboards) and live demos: an Expo walkthrough, a feature demo, a tutorial, most Screen Studio projects | `explainer` |
+| one person watching a video and commenting on it (a reaction video): the video's sound is the second voice | `reaction` |
 | a folder of clips from a shoot, a trip, an event, a day | `vlog` |
 
 | The user wants | Depth | What happens |
@@ -34,9 +35,9 @@ Then read, in this order:
 
 1. [references/taste.md](references/taste.md): the user's own corrections. They beat every general rule.
 2. [references/core.md](references/core.md): the shared core (story outline, hooks, read-through, schemas). For a clean-up, only "Read-through checklist" and "Shorts" apply.
-3. [references/talking-head.md](references/talking-head.md), [references/explainer.md](references/explainer.md) (read talking-head.md first: an explainer follows its steps, with the picture added) or [references/vlog.md](references/vlog.md): the style's steps, with the commands in order.
+3. [references/talking-head.md](references/talking-head.md), [references/explainer.md](references/explainer.md) (read talking-head.md first: an explainer follows its steps, with the picture added), [references/reaction.md](references/reaction.md) (also after talking-head.md: two voices, replays, a whole and a replies version) or [references/vlog.md](references/vlog.md): the style's steps, with the commands in order.
 
-Unsure about the style (for example one long recording of an event) or the depth? Ask. The style decides what you look at (a talking head is audio only; an explainer is audio first, with the picture where the words point at it; a vlog needs the picture), whether fumbles are mistakes or story, and the defaults cutroom applies. It is stored in the project file as `"style"` (a folder defaults to `vlog`, a single file to `talking-head`).
+Unsure about the style (for example one long recording of an event) or the depth? Ask. The style decides what you look at (a talking head is audio only; an explainer is audio first, with the picture where the words point at it; a vlog needs the picture), whether fumbles are mistakes or story, and the defaults cutroom applies. It is stored in the project file as `"style"` (a folder defaults to `vlog`, a single file to `talking-head`; set `explainer` and `reaction` yourself).
 
 ## 3. Command reference
 
@@ -47,6 +48,8 @@ Unsure about the style (for example one long recording of an event) or the depth
 | `cutroom script <source> [--print]` | the read-through: the cut as a script in play order (" / " = a cut inside a moment) |
 | `cutroom video <file> [--export fcpxml\|mp4]` | a single video file: write the cut (follows `selects` if there are any) |
 | `cutroom project <pkg.screenstudio>` | Screen Studio: write `<name>-clean.screenstudio` (recorded order) |
+| `cutroom join <a.screenstudio> <b.screenstudio> --output <c.screenstudio>` | one Screen Studio project that plays several recordings from one setup in order (they become sessions; no re-encode) |
+| `cutroom check <source> [M3 R1 ...]` | every retake and manual cut as it sounds: a short clip around each join (both voices of a reaction), transcribed on its own |
 | `cutroom export <source> clean\|vlog\|S1\|V3 ...` | FCPXML (or `--format mp4`) of the whole program, a short, or one select |
 | `cutroom export <video> S2 --screenstudio <project>` | also cut the Screen Studio project the video came from down to that short, found by its words: `<project>-S2.screenstudio` (repeat `--screenstudio` for a video made from several projects) |
 | `cutroom digest <folder> [--shards 5]` | vlog: transcribes every clip once, contact sheets for every clip, digest shards for parallel agents |

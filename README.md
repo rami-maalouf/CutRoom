@@ -1,12 +1,13 @@
 # CutRoom
 
-Edit real footage into a finished cut, and find the shorts inside it. Three kinds of video:
+Edit real footage into a finished cut, and find the shorts inside it. Four kinds of video:
 
 - a **talking head**: one person talking (a talk to camera, a story, an interview, a podcast, hours of it in several files);
 - an **explainer**: one person teaching or demoing, switching between camera, screen (code, diagrams, dashboards) and live demos, often recorded in Screen Studio;
+- a **reaction**: one person watching a video and commenting on it, with the video's sound as a second voice (Screen Studio's system audio);
 - a **vlog**: a folder of clips from a shoot, a trip or an event.
 
-CutRoom removes silences and retakes, plays any cut on a review page without rendering (on a computer or a phone), and exports Final Cut Pro / DaVinci Resolve timelines (FCPXML), mp4 files, cleaned Screen Studio projects, and shorts as FCPXML or as their own Screen Studio project.
+CutRoom removes silences and retakes, plays any cut on a review page without rendering (on a computer or a phone), and exports Final Cut Pro / DaVinci Resolve timelines (FCPXML), mp4 files, cleaned Screen Studio projects, and shorts as FCPXML or as their own Screen Studio project. It also joins several Screen Studio recordings into one project.
 
 The CLI is deterministic: the same footage, transcript and project file always give the same cut. The editorial judgment (which moments tell the story) comes from an AI agent following the bundled skill ([`skills/cutroom`](skills/cutroom/SKILL.md)), and from you on the review page.
 
@@ -38,6 +39,8 @@ Every project has a `style` in its project file. It sets CutRoom's defaults and 
 | Pacing | `balanced` | `balanced`; demo pauses that hold action stay (Screen Studio clicks and keystrokes are kept automatically) | no automatic pause cuts: a scene plays as filmed, the editor cuts dead time by choosing ranges (`--silences` brings them back, `relaxed`) |
 | Depth | a quick **clean-up** ("process my latest video"), or a story-first **edit** | the same as a talking head | always a story-first **edit** |
 
+A `reaction` (set it in the project file) cuts like a talking head, with three differences: a pause is only cut where the mic and the video are both quiet, a retake cut never removes the video's sound, and clicks protect no pauses (they pause and seek the video). The read-through marks the video's lines with `video:`. See [reaction.md](skills/cutroom/references/reaction.md), also for making a whole version and a replies-only version.
+
 A story-first edit: a brief, then a story outline (`story.md`) that you approve on the review page's Story tab, then selects that fill the story's beats, then a read-through (`cutroom script`), then your review. Explicit flags always beat the style defaults.
 
 ## Commands
@@ -49,6 +52,7 @@ cutroom script talk.mp4                            # read-through: the cut as a 
 cutroom video talk.mp4 --yes --export fcpxml       # talk-clean.fcpxml, no re-encode (follows selects)
 cutroom video talk.mp4 --yes                       # talk-clean.mp4
 cutroom project ~/Movies/demo.screenstudio --yes   # demo-clean.screenstudio (no re-encode)
+cutroom join part1.screenstudio part2.screenstudio --output both.screenstudio   # one project, the recordings as sessions
 
 # vlog
 cutroom digest ~/Movies/weekend --shards 5         # transcripts, contact sheets, digest shards for agents
@@ -62,6 +66,7 @@ cutroom export <source> clean|vlog|S3|V7           # FCPXML (or --format mp4) of
 cutroom export final.mov S2 --screenstudio e2e-1.screenstudio   # and e2e-1-S2.screenstudio: the project cut to that short
 cutroom import talk.mp4 edited-in-fcp.fcpxml       # a timeline edited by hand in Final Cut becomes the edit
 cutroom frames talk.mp4 S1 S3                      # a grid of frames over what each short plays: camera, screen or demo?
+cutroom check talk.mp4 M3 R1                       # each cut as it sounds: a short clip around the join, transcribed
 cutroom transcribe talk.mp4                        # only the word-level transcript cache
 ```
 
@@ -75,7 +80,7 @@ Flags for every command that plans a cut:
 | `--retakes`, `--no-retakes` | retake detection on or off (default by style) |
 | `--no-silences` / `--silences` | retakes and manual cuts only (the vlog default) / also cut long pauses |
 | `--window`, `--threshold`, `--pre-roll` | retake search window, opening similarity (0-1), air kept before the kept take |
-| `--no-protect-actions`, `--action-before`, `--action-after` | Screen Studio: clicks and keystrokes keep their pause on screen (default on, 0.5 s before, 1.0 s after) |
+| `--no-protect-actions` / `--protect-actions`, `--action-before`, `--action-after` | Screen Studio: clicks and keystrokes keep their pause on screen (default on except for reactions, 0.5 s before, 1.0 s after) |
 | `--review-silences` | approve silence cuts one by one instead of as a batch |
 | `--dry-run` (`project`, `video`) | decide and print, write nothing |
 | `--report FILE` | JSON with every sentence, decision, protected range and kept segment |
@@ -122,7 +127,7 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
 }
 ```
 
-- **style** is `talking-head`, `explainer` or `vlog` (see above). Set it before the first command: a folder defaults to `vlog`, a single file to `talking-head`.
+- **style** is `talking-head`, `explainer`, `reaction` or `vlog` (see above). Set it before the first command: a folder defaults to `vlog`, a single file to `talking-head`.
 - **edits.cuts** become manual decisions `M1`, `M2`, ...; **edits.keeps** are never cut (a keep overlapping a retake rejects it).
 - **selects** (`V1`...) are the program in play order, with the story's `chapter`, `beat`, `role` and `intent`. Without selects, the program is the clean cut in recorded order.
 - **shorts** (`S1`...) are short-form candidates, exported from the clean cut (`"raw": true` plays a short exactly as recorded: right for a finished export, already paced by hand). Optional `theme`, `rank` (1 = review first), `score` (0-10), `scores` (`{"hook": 8, ...}`) and `tags` drive the Shorts tab; see [core.md](skills/cutroom/references/core.md#shorts) for how to find good ones.

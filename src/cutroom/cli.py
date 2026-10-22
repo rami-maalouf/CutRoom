@@ -30,7 +30,7 @@ from .core import (Range, clean_segments, drop_hallucinated_words, invert_cuts, 
 from .fcpxml import read_keeps, write_fcpxml, write_timeline
 from .media import collect_silences, frame_strip, probe_video, render, require_ffmpeg, versioned_output
 from .pipeline import Plan, plan_cuts, write_report
-from .review import write_review
+from .review import short_checks, short_data, write_review
 from .script import build_script, script_path
 from .screenstudio import (action_times, check_package, edited_ranges, is_screenstudio, mic_sessions,
                            write_cut_package)
@@ -310,6 +310,11 @@ def run_review(args) -> None:
     else:
         dst = args.output or job.src.with_suffix(".review.html")
     write_review(job, dst)
+    checks = short_checks(job)
+    if checks:
+        print(f"shorts to check ({len(checks)} of {len(job.data['shorts'])}):")
+        for sid, flags in checks:
+            print(f"  {sid}: " + "; ".join(flags))
     if args.serve:
         from .serve import serve
         # the first plan is the one just made; later ones follow project edits
@@ -497,9 +502,44 @@ def export_to_screenstudio(job, item: dict, packages: list[Path], backend) -> No
     write_cut_package(pkg, invert_cuts(merge_ranges(keeps), total_ms), None, f"-{item['id']}")
 
 
+def export_text_job(job, item: dict, video: Path, force: bool) -> Path:
+    # the bridge to the shorts-text skill: the short's approved copy and the
+    # finished export (a screen studio export with its captions) become a job
+    # file next to the export. the skill renders it: pack.py run <job>
+    iid = item["id"]
+    if not iid.upper().startswith("S"):
+        sys.exit(f"--text works on a short (S1 ...), not {iid}")
+    if not video.is_file():
+        sys.exit(f"--text needs the finished short as a video file: {video}")
+    copy = item.get("copy")
+    if not copy:
+        sys.exit(f"{iid} has no \"copy\" in {project.project_path(job.src).name}: "
+                 "propose the headline and calls to action first")
+    if copy.get("status", "proposed") != "approved" and not force:
+        sys.exit(f"{iid}: its copy is not approved yet. Rami approves it on the review page's Shorts tab "
+                 "(or pass --force to write the job anyway)")
+    words = job.plan.words or []
+    flags = short_data(job, item, words, [w["startMs"] for w in words])["flags"]
+    for flag in flags:
+        if flag.startswith("text "):
+            print(f"  check: {flag}")
+    dst = video.with_suffix(".text.json")
+    job_data = {"video": str(video.resolve()), "short": iid,
+                "project": str(project.project_path(job.src)), "texts": copy["texts"]}
+    dst.write_text(json.dumps(job_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"wrote shorts-text job: {dst}" + ("" if copy.get("status") == "approved" else "  (copy not approved)"))
+    print(f"next: pack.py run {json.dumps(str(dst))} --plan  (the shorts-text skill), then without --plan to render")
+    return dst
+
+
 def run_export(args) -> None:
     args.yes = True
     job = make_plan(args.source, args)
+    if args.text:
+        if len(args.ids) != 1:
+            sys.exit("--text writes the job for one short: give one id, like S6")
+        export_text_job(job, project.find(job.data, args.ids[0]), args.text, args.force)
+        return
     if args.screenstudio:
         for iid in args.ids:
             if iid.lower() not in ("vlog", "clean"):
@@ -694,6 +734,10 @@ def main(argv: list[str] | None = None) -> None:
                    help="also cut this screen studio project (the one the video came from) down to each short "
                         "or select, found by its words: <project>-S2.screenstudio. repeat it for a video made "
                         "from several projects; each short goes to the project that holds its words")
+    p.add_argument("--text", type=Path, metavar="VIDEO",
+                   help="write a shorts-text job for one short instead: its approved copy (headline and calls to "
+                        "action) on this finished export of it, as <video>.text.json next to the export")
+    p.add_argument("--force", action="store_true", help="with --text: also write copy that is not approved yet")
     p.set_defaults(run=run_export)
 
     p = sub.add_parser("import", help="make a final cut pro timeline (exported xml) the edit")

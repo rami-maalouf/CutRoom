@@ -119,7 +119,7 @@ A short must stand alone: no load-bearing word ("this", "as I said", "for exampl
 Finding them, in this order:
 
 1. **Verbatim first.** Read the exact words of every candidate (the transcript, or `cutroom script`), never a summary of them. The strong picks are the passages already well said out loud.
-2. **The gate is a filter, not a score.** Read only the candidate's words: if the first sentence leans on something before it ("Because...", "And it came down to...", "Which also..."), or a name or "that thing" does work the clip never explains, move the start or drop it. The review page flags openings on a leaning word or mid-sentence, endings without a full stop, words that point to earlier in the video ("as I mentioned") and words that need the screen ("right here"), as "to check": fix every flag or say in `why` why it stays.
+2. **The gate is a filter, not a score.** Read only the candidate's words: if the first sentence leans on something before it ("Because...", "And it came down to...", "Which also..."), or a name or "that thing" does work the clip never explains, move the start or drop it. The review page flags openings on a leaning word or mid-sentence, endings without a full stop, words that point to earlier in the video ("as I mentioned"), words that need the screen ("right here") and a phrase said twice close together ("both on Android and iOS" / "both in Android and iOS" 5 s later: cut one telling), as "to check": fix every flag or say in `why` why it stays. `cutroom review` also prints them.
 3. **Short means short.** One idea, the hook in the first seconds, the payoff at the end. Most land at 30-90 s. A long story is not one short: take the 1-3 strongest stretches inside it as their own shorts (tag them `lift-out`).
 4. **Start and end on whole sentences.** Start at the first word of a sentence that works with no context; end on the payoff line, not on the "so yeah" after it. cutroom snaps to words; pick the right sentence.
 5. **Then score and rank.** `scores` out of 10 each for `hook`, `standalone`, `emotion`, `relatability`, `payoff` (an explainer scores `clarity` and `usefulness` instead of emotion and relatability); `score` is the overall quality; `rank` is the review order (1 first), the best shorts first. Never let a criterion that is really a requirement (standalone) be averaged away.
@@ -138,4 +138,19 @@ Store each one as:
 **Out:** `cutroom export <source> S1 S4` (FCPXML). When the video was made in Screen Studio, add `--screenstudio <project>` (once per project) to also get `<project>-S1.screenstudio`, the project cut down to the short by its words (explainer.md has the details and the checks).
 
 The user reviews on the Shorts tab: a sortable list on the side, the chosen short under the player with its words and checks, P / M / X to pick, maybe or reject, a note per short. The copied feedback lists the picks to export, the maybes, the rejects to remove, and the notes ("S4: start 2 s later"). Apply notes to the ranges, remove rejects, keep ids stable for the rest, then re-run `cutroom review`.
+
+### The text on the finished short
+
+A short that will be posted gets its text: a headline at the start, a call to action on the words it belongs to, and an end call to action. Propose it with the short (or once the user picks it), in the speaker's own words (the long-to-short headline rules), as its `copy`:
+
+```json
+"copy": {"status": "proposed", "texts": [
+  {"kind": "headline", "text": "Android widgets are here!"},
+  {"kind": "cta", "text": "comment “code” for the repo link", "at": "We got a few more demos"},
+  {"kind": "cta", "text": "full video on\nYouTube!", "at": "last sentence"}]}
+```
+
+`at` is words the short says (small words may differ between transcripts) or `"last sentence"`; a `\n` is a line break on the video. Optional: `hold` (seconds, default 4.8), `until: "end"`, `end`, `top` (px). The Shorts tab shows each text with the words and the time it starts on (and flags `at` words the short does not say); the user edits the text there and approves it (A). The feedback carries the edited copy as JSON: put it in the project file as is. Never approve copy yourself: `"status": "approved"` comes from the user.
+
+Then the flow ends outside cutroom: the user exports the short from Screen Studio (with its captions), `cutroom export <source> S6 --text <export.mp4>` writes `<export>.text.json` (it refuses copy that is not approved unless `--force`), and the shorts-text skill (OpenMontage `.agents/skills/shorts-text`) renders it: `pack.py run <job> --plan`, read the check still, then `pack.py run <job>`.
 

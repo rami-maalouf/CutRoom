@@ -49,13 +49,14 @@ Unsure about the style (for example one long recording of an event) or the depth
 | `cutroom project <pkg.screenstudio>` | Screen Studio: write `<name>-clean.screenstudio` (recorded order) |
 | `cutroom export <source> clean\|vlog\|S1\|V3 ...` | FCPXML (or `--format mp4`) of the whole program, a short, or one select |
 | `cutroom export <video> S2 --screenstudio <project>` | also cut the Screen Studio project the video came from down to that short, found by its words: `<project>-S2.screenstudio` (repeat `--screenstudio` for a video made from several projects) |
+| `cutroom export <video> S6 --text <export.mp4>` | the short's approved `copy` (headline, calls to action) on its finished export becomes a shorts-text job, `<export>.text.json`, for the shorts-text skill to render (core.md "The text on the finished short"); `--force` for copy not approved yet |
 | `cutroom digest <folder> [--shards 5]` | vlog: transcribes every clip once, contact sheets for every clip, digest shards for parallel agents |
 | `cutroom candidates <folder> [--write-selects --story-order]` | vlog: checks agents' candidate files, writes them as selects in story order, and the inclusion list from `inclusions/*.json` |
 | `cutroom frames <source> S1 V3 ...` | a grid of 8 frames over what each short or select plays (`<name>.frames/`), to see camera, screen or demo without watching |
 | `cutroom import <video> <edited.fcpxml>` | a timeline edited by hand in Final Cut becomes the edit |
 | `cutroom transcribe <media>` | word-level transcript cache only |
 
-Every command reads the project file (`<name>.cutroom.json`, or `<folder>/cutroom/cutroom.json`): `style`, `ignore`, `edits.cuts`, `edits.keeps`, `selects` (V1...), `shorts` (S1...), `pickups` (P1...: talking heads for the user to record where the footage cannot explain itself, see core.md), `inclusions` (I1...: vlog moments judged "in" or "out" with the reason, see vlog.md). Edit the file; never rely on one-off flags you will forget. Without a terminal cutroom approves everything it proposes, so review comes before any write. Transcripts are cached, so every re-plan after the first takes seconds.
+Every command reads the project file (`<name>.cutroom.json`, or `<folder>/cutroom/cutroom.json`): `style`, `ignore`, `edits.cuts`, `edits.keeps`, `selects` (V1...), `shorts` (S1..., each may carry its `copy`: the text on the finished short), `pickups` (P1...: talking heads for the user to record where the footage cannot explain itself, see core.md), `inclusions` (I1...: vlog moments judged "in" or "out" with the reason, see vlog.md). Edit the file; never rely on one-off flags you will forget. Without a terminal cutroom approves everything it proposes, so review comes before any write. Transcripts are cached, so every re-plan after the first takes seconds.
 
 ## 4. Steps that need computer use
 

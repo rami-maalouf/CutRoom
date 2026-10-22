@@ -23,6 +23,14 @@
 # "theme" (text), "rank" (1 = review first), "score" (0-10, overall quality),
 # "scores" ({"hook": 8, "standalone": 9, ...}, each 0-10) and "tags" (["v04"]).
 #
+# a short may also carry its "copy": the text that goes on the finished short
+# (rendered by the shorts-text skill), {"status": "proposed" | "approved",
+# "texts": [...]}. each text is {"kind": "headline" | "cta", "text": "...",
+# "at": "..."}: a headline shows from the start; a call to action starts on the
+# words in "at" (said inside the short), or on "last sentence". optional:
+# "hold" (seconds), "until": "end", "end" (seconds), "top" (px). a "\n" in the
+# text is a line break. the agent proposes, the person approves on the review page.
+#
 # a range is {"clip": "<path inside the folder>", "start": s, "end": s} with
 # seconds inside that clip; for a single source "clip" is left out (and the
 # short list form [start, end, note] still works). anchoring times to clips
@@ -56,6 +64,9 @@ STYLES = ("talking-head", "explainer", "vlog")
 # free text on selects and shorts: shown on the review page and in the read-through
 TEXT_FIELDS = ("chapter", "beat", "role", "intent", "title", "why", "theme")
 PICKUP_KINDS = ("talking-head", "voiceover")
+COPY_KINDS = ("headline", "cta")
+COPY_STATUS = ("proposed", "approved")
+COPY_KEYS = {"kind", "text", "at", "hold", "until", "end", "top"}
 VERDICTS = ("in", "out")
 
 
@@ -141,6 +152,8 @@ def validate(data: dict, path: Path, clips: set[str] | None) -> None:
                 sys.exit(f"{path.name}: {item.get('id')} \"{key}\" must be text, got {item[key]!r}")
     for item in data["shorts"]:
         check_short_review(item, path)
+        if "copy" in item:
+            check_short_copy(item, path)
     for key in ("cuts", "keeps"):
         for item in data["edits"][key]:
             if isinstance(item, list) and len(item) < 2:
@@ -219,6 +232,42 @@ def check_short_review(item: dict, path: Path) -> None:
     tags = item.get("tags", [])
     if not (isinstance(tags, list) and all(isinstance(x, str) for x in tags)):
         sys.exit(f"{path.name}: {iid} \"tags\" must be a list of text, got {tags!r}")
+
+
+def _positive(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+
+
+def check_short_copy(item: dict, path: Path) -> None:
+    # the short's text for the finished video, in the shape of a shorts-text job's "texts"
+    iid, copy = item.get("id"), item["copy"]
+    shape = '{"status": "proposed", "texts": [{"kind": "headline", "text": "..."}, ...]}'
+    if not (isinstance(copy, dict) and isinstance(copy.get("texts"), list) and copy["texts"]):
+        sys.exit(f"{path.name}: {iid} \"copy\" must look like {shape}, got {copy!r}")
+    if copy.get("status", "proposed") not in COPY_STATUS:
+        sys.exit(f"{path.name}: {iid} copy \"status\" must be \"proposed\" or \"approved\", got {copy.get('status')!r}")
+    for n, t in enumerate(copy["texts"], 1):
+        where = f"{iid} copy text {n}"
+        if not isinstance(t, dict):
+            sys.exit(f"{path.name}: {where} must be an object like {{\"kind\": \"cta\", \"text\": ..., \"at\": ...}}")
+        unknown = sorted(set(t) - COPY_KEYS)
+        if unknown:
+            sys.exit(f"{path.name}: {where} has unknown keys {unknown} (known: {', '.join(sorted(COPY_KEYS))})")
+        if t.get("kind") not in COPY_KINDS:
+            sys.exit(f"{path.name}: {where} \"kind\" must be \"headline\" or \"cta\", got {t.get('kind')!r}")
+        if not (isinstance(t.get("text"), str) and t["text"].strip()):
+            sys.exit(f"{path.name}: {where} needs a \"text\"")
+        if t["kind"] == "cta" and not (isinstance(t.get("at"), str) and t["at"].strip()):
+            sys.exit(f"{path.name}: {where} needs \"at\": the words it starts on, or \"last sentence\"")
+        for key in ("hold", "end"):
+            if key in t and not _positive(t[key]):
+                sys.exit(f"{path.name}: {where} \"{key}\" must be a positive number of seconds, got {t[key]!r}")
+        if "until" in t and t["until"] != "end":
+            sys.exit(f"{path.name}: {where} \"until\" can only be \"end\", got {t['until']!r}")
+        if "top" in t and not (isinstance(t["top"], int) and not isinstance(t["top"], bool) and t["top"] >= 0):
+            sys.exit(f"{path.name}: {where} \"top\" must be a whole number of pixels, got {t['top']!r}")
+    if sum(t["kind"] == "headline" for t in copy["texts"]) > 1:
+        sys.exit(f"{path.name}: {iid} copy has more than one headline")
 
 
 def _ms(r: dict, offsets: dict[str, float] | None) -> Range:

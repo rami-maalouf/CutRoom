@@ -53,6 +53,7 @@ Rami's look for a reaction is in taste.md: landscape, no zooms, the face fullscr
 - A comment zoom is `{"type": "manual", "zoom": 1.2-1.4, "manualTargetPoint": {"x", "y"}}`. Look at the frames first: the page scrolls, so start the zoom after it settles. Keep the target within `0.5 / zoom` of every edge, or the zoom shows empty space.
 - The cursor and the video's volume are per slice: `hideCursor` (true on every slice except where the reactor points at something) and `systemAudioVolume` (the video's level against the mic; measure both over the kept cut, with the mic as Screen Studio renders it under its preset, the newest `cache/audio-render/channel-3-microphone-*.m4a`).
 - Screen Studio saves its own state over `project.json` when the project is open: write only while it is closed, and back the file up first. An open project has a `Project - <name>` window and holds its video segments open; after it closes, `screen-studio-native` can keep a few `.m4a` handles, so do not wait for zero open files.
+- **A `cutout-camera` layout anywhere makes the export depend on a camera matte** (Screen Studio 4.1: `cache/camera-matte/matte-*/`, chunks of 30 frames, `manifest.json` has the frame count). Screen Studio builds it in the background only while the project is open, and only for the frames the cut uses. Export before it is built and the render can stall: "trusted render at ... ms waited 60 s on: stand-in-content(project-camera(channel-4-webcam-1.m3u8, pp-mattingv2-ss9-refined)...)". The reports are in `~/Library/Application Support/Screen Studio/sentry/queue/` (one JSON event per line, with breadcrumbs). Fix: keep the project open until every chunk the cut's slices need exists, then export; or use another layout for the cutout span. On the Hank Green reaction (2026-10-23) the first export failed at 17:59 of 28:05 with part 2's matte 37% built; with the matte built, the export finished (stalls of 10-30 s recovered).
 
 ## When the user edits it further in Screen Studio
 
@@ -64,6 +65,16 @@ The user's own pass is the best taste signal there is: review it, then add what 
 4. Read the cut as a viewer (core.md checklist): a "this" whose line went, a half-sentence from the video that now runs into the reactor's line, a numbered list with numbers missing, a plug whose setup was cut.
 5. Map the layouts to play time (speed counts): switches inside a sentence, screen stretches under 4 s between face spans, the camera jumping corners.
 6. Report in play time (what the user sees in the app), most serious first. Do not edit the project unless asked: the app may still have it open.
+
+## Shorts
+
+Mine them from the finished export, not from the Screen Studio project: the export is one file with both voices mixed, so the review page plays what the viewer hears (on a project it plays the mic alone).
+
+1. Export from Screen Studio. For the review page, make an H.264 copy at 720p (`ffmpeg -hwaccel videotoolbox -i export.mp4 -vf scale=-2:720 -c:v h264_videotoolbox -b:v 3500k -c:a copy -movflags +faststart copy.mp4`): the export is 4K HEVC, which not every browser plays. Same times, same audio.
+2. In `<copy>.cutroom.json`: `"style": "reaction"`, every short `"raw": true`, and `edits.keeps` over the whole video, so the page does not propose a second clean-up of a finished cut.
+3. Pick candidates verbatim from the read-through. A reaction short is usually the video's line, then the reply; the reactor's tangents (face fullscreen) work like talking-head shorts. "He" is fine while the video's speaker is on screen.
+4. Check every edge on the export's audio, transcribed as a short clip: the first and last seconds, and both sides of each join between segments. Long-transcript word times run late or early at the edges: on the Hank Green shorts, 2 of 17 started on a stray word ("to", "to me."), 1 started inside its first word ("Make") and 1 ended before its last word ("fact"). Where the reactor comments inside the video's sentence, measure which voice is speaking (mic or system level at that time) and skip the comment with a second segment.
+5. `cutroom review <copy> --serve` and look at the Shorts tab before you hand it over (a short must jump to its start and play).
 
 ## Proven on
 

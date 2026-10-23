@@ -47,11 +47,22 @@ Report both lengths, every removal with its reason, and the judgment calls the u
 
 ## The look
 
-Rami's look for a reaction is in taste.md: landscape, no zooms except gentle ones on the comments, the face fullscreen on tangents. Set it in the project's `project.json` (`config.output.aspectRatio`, `config.defaultLayout`, `scenes[].zooms`, `scenes[].layouts`), on the joined source as well, so every version cut from it inherits it.
+Rami's look for a reaction is in taste.md: landscape, no zooms, the face fullscreen on tangents and on most of the reactor's own comments, the camera overlay at 0.5 (top-right over the comment section). Set it in the project's `project.json` (`config.output.aspectRatio`, `config.defaultLayout`, `scenes[].zooms`, `scenes[].layouts`), on the joined source as well, so every version cut from it inherits it.
 
 - A face span is a layout `{"type": "fullscreen-camera", "sourceStartMs", "sourceEndMs", ...}` (copy the fields from a layout Screen Studio wrote). Find each tangent's first and last words in the transcript, and put the switch on the nearest cut when one is within 1.5 s, so the layout changes on a cut. Check that no screen stretch between two face spans is shorter than about 4 s in any version: it flickers.
 - A comment zoom is `{"type": "manual", "zoom": 1.2-1.4, "manualTargetPoint": {"x", "y"}}`. Look at the frames first: the page scrolls, so start the zoom after it settles. Keep the target within `0.5 / zoom` of every edge, or the zoom shows empty space.
 - Screen Studio saves its own state over `project.json` when the project is open: write only while it is closed, and back the file up first.
+
+## When the user edits it further in Screen Studio
+
+The user's own pass is the best taste signal there is: review it, then add what it teaches to taste.md.
+
+1. Diff the slices Screen Studio saved against the ones cutroom wrote (keep the written `project.json` as a backup): every removed block with its words, every range brought back, every speed (`timeScale` below 1 is faster) or volume change.
+2. Hear every new join as a short clip (both voices, 5 s each side), exactly as `cutroom check` does. Hand-made cuts in the app look broken in the long transcript far more often than they are: on the Hank Green pass, many joins read wrong there ("So do not" gone, "Not speaking from experience" turned into "speaking from experience"), and heard as short clips almost all were fine.
+3. Measure each new edge: louder than -40 dB, it may sit inside a word; louder than about -20 dB, give it to the user to listen to.
+4. Read the cut as a viewer (core.md checklist): a "this" whose line went, a half-sentence from the video that now runs into the reactor's line, a numbered list with numbers missing, a plug whose setup was cut.
+5. Map the layouts to play time (speed counts): switches inside a sentence, screen stretches under 4 s between face spans, the camera jumping corners.
+6. Report in play time (what the user sees in the app), most serious first. Do not edit the project unless asked: the app may still have it open.
 
 ## Proven on
 

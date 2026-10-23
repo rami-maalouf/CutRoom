@@ -51,7 +51,8 @@ Rami's look for a reaction is in taste.md: landscape, no zooms, the face fullscr
 
 - A face span is a layout `{"type": "fullscreen-camera", "sourceStartMs", "sourceEndMs", ...}` (copy the fields from a layout Screen Studio wrote). Find each tangent's first and last words in the transcript, and put the switch on the nearest cut when one is within 1.5 s, so the layout changes on a cut. Check that no screen stretch between two face spans is shorter than about 4 s in any version: it flickers.
 - A comment zoom is `{"type": "manual", "zoom": 1.2-1.4, "manualTargetPoint": {"x", "y"}}`. Look at the frames first: the page scrolls, so start the zoom after it settles. Keep the target within `0.5 / zoom` of every edge, or the zoom shows empty space.
-- Screen Studio saves its own state over `project.json` when the project is open: write only while it is closed, and back the file up first.
+- The cursor and the video's volume are per slice: `hideCursor` (true on every slice except where the reactor points at something) and `systemAudioVolume` (the video's level against the mic; measure both over the kept cut, with the mic as Screen Studio renders it under its preset, the newest `cache/audio-render/channel-3-microphone-*.m4a`).
+- Screen Studio saves its own state over `project.json` when the project is open: write only while it is closed, and back the file up first. An open project has a `Project - <name>` window and holds its video segments open; after it closes, `screen-studio-native` can keep a few `.m4a` handles, so do not wait for zero open files.
 
 ## When the user edits it further in Screen Studio
 

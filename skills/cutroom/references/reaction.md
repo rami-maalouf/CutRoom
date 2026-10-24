@@ -75,6 +75,8 @@ Mine them from the finished export, not from the Screen Studio project: the expo
 3. Pick candidates verbatim from the read-through. A reaction short is usually the video's line, then the reply; the reactor's tangents (face fullscreen) work like talking-head shorts. "He" is fine while the video's speaker is on screen.
 4. Check every edge on the export's audio, transcribed as a short clip: the first and last seconds, and both sides of each join between segments. Long-transcript word times run late or early at the edges: on the Hank Green shorts, 2 of 17 started on a stray word ("to", "to me."), 1 started inside its first word ("Make") and 1 ended before its last word ("fact"). Where the reactor comments inside the video's sentence, measure which voice is speaking (mic or system level at that time) and skip the comment with a second segment.
 5. `cutroom review <copy> --serve` and look at the Shorts tab before you hand it over (a short must jump to its start and play).
+6. A picked short as its own project: `cutroom export <copy> S2 --screenstudio <project>`. Where both voices talk at once, the word search can fall under 90% and stop (the Hank Green S18, 326 of 461 words). The export plays the project's slices end to end, so map the short's export times through the slices (`timeScale` counts) to recording ranges and cut the package with those keeps (`write_cut_package`); on S7 this gave the same 10 ranges as the word search, within 0.25 s.
+7. The vertical look (taste.md, Shorts): in a 3:4 canvas a 16:9 screen fills the frame only at 2.37x or more; below that, the wallpaper shows above and below it.
 
 ## Proven on
 

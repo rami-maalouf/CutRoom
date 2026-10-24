@@ -34,6 +34,32 @@ def test_cache_versions(tmp_path):
     assert load_cache(cache) == [{"word": "é"}]
 
 
+def test_cache_from_other_media_is_stale(tmp_path):
+    # a short exported again under the same name must not keep the old transcript
+    media = tmp_path / "short.mp4"
+    media.write_bytes(b"x" * 100)
+    sessions = [{"path": media, "durationMs": 53200.0}]
+    cache = tmp_path / "short.transcript.json"
+    words = [{"startMs": 0, "endMs": 500, "word": "And"}]
+    cache.write_text(json.dumps({"v": CACHE_VERSION, "media": transcribe._media(sessions), "words": words}))
+    assert load_cache(cache, sessions) == words
+    media.write_bytes(b"x" * 90)  # exported again: other bytes
+    assert load_cache(cache, sessions) is None
+    assert load_cache(cache) == words  # without the sessions, no check
+
+
+def test_old_cache_is_stale_when_its_words_run_past_the_media(tmp_path):
+    # caches from before "media" was kept: a re-export that got shorter still shows
+    media = tmp_path / "short.mp4"
+    media.write_bytes(b"x")
+    sessions = [{"path": media, "durationMs": 53200.0}]
+    cache = tmp_path / "short.transcript.json"
+    cache.write_text(json.dumps({"v": CACHE_VERSION, "words": [{"startMs": 115000, "endMs": 115600, "word": "yourself."}]}))
+    assert load_cache(cache, sessions) is None
+    cache.write_text(json.dumps({"v": CACHE_VERSION, "words": [{"startMs": 52000, "endMs": 52900, "word": "you."}]}))
+    assert load_cache(cache, sessions) == [{"startMs": 52000, "endMs": 52900, "word": "you."}]
+
+
 @needs_ffmpeg
 def test_audio_is_decoded_to_16k_mono_float_by_ffmpeg(tmp_path):
     samples = load_audio_16k(make_audio(tmp_path / "a.m4a", [("tone", 1), ("silence", 1)]))

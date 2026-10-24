@@ -96,22 +96,40 @@ def transcribe_samples(samples, backend: str) -> list[tuple[float, float, str]]:
     return _clean(_mlx_words(samples) if backend == "mlx" else _faster_whisper_words(samples))
 
 
-def load_cache(cache: Path) -> list[dict] | None:
+def _media(sessions: list[dict]) -> list[dict]:
+    # what a cache was made from: each session's size and length. a file exported again under the same name
+    # (a short after an edit) differs in both; a renamed clone of the same recording (cutroom join) in neither
+    return [{"bytes": s["path"].stat().st_size if s["path"].exists() else None, "durationMs": round(s["durationMs"])}
+            for s in sessions]
+
+
+def load_cache(cache: Path, sessions: list[dict] | None = None) -> list[dict] | None:
+    # the cached words, or None when there are none, they are an older format, or (given the sessions) they
+    # were made from other media
     if not cache.exists():
         return None
     data = json.loads(cache.read_text(encoding="utf-8"))
-    if isinstance(data, dict) and data.get("v") == CACHE_VERSION:
-        return data["words"]
-    return None
+    if not (isinstance(data, dict) and data.get("v") == CACHE_VERSION):
+        return None
+    if sessions is not None:
+        if "media" in data:
+            if data["media"] != _media(sessions):
+                return None
+        else:
+            # a cache from before "media" was kept: stale when its words run past the end of the media
+            total = sum(s["durationMs"] for s in sessions)
+            if any(w["endMs"] > total + 1000 for w in data["words"]):
+                return None
+    return data["words"]
 
 
 def _transcribe_into(cache: Path, sessions: list[dict], backend: str | None) -> list[dict]:
     # one cache file for these sessions laid end to end
-    cached = load_cache(cache)
+    cached = load_cache(cache, sessions)
     if cached is not None:
         return cached
     if cache.exists():
-        print(f"{cache.name} is an older format, re-transcribing")
+        print(f"{cache.name} is an older format or from other media, re-transcribing")
     backend = pick_backend(backend)
     words = []
     offset_ms = 0.0
@@ -128,7 +146,8 @@ def _transcribe_into(cache: Path, sessions: list[dict], backend: str | None) -> 
     model = MLX_MODEL if backend == "mlx" else FASTER_WHISPER_MODEL
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(
-        json.dumps({"v": CACHE_VERSION, "backend": backend, "model": model, "words": words}, indent=1),
+        json.dumps({"v": CACHE_VERSION, "backend": backend, "model": model, "media": _media(sessions), "words": words},
+                   indent=1),
         encoding="utf-8",
     )
     return words
@@ -140,13 +159,13 @@ def transcribe_sessions(sessions: list[dict], cache: Path | None, backend: str |
     # with None, each session carries its own "cache" (a folder of clips), so
     # adding a clip later only transcribes that clip.
     if cache is not None:
-        hit = load_cache(cache) is not None
+        hit = load_cache(cache, sessions) is not None
         words = _transcribe_into(cache, sessions, backend)
         print(f"{'using cached' if hit else 'cached'} transcript: {cache.name}")
         return words
     words, offset_ms, fresh = [], 0.0, 0
     for session in sessions:
-        fresh += load_cache(session["cache"]) is None and session.get("hasAudio", True)
+        fresh += load_cache(session["cache"], [session]) is None and session.get("hasAudio", True)
         for w in _transcribe_into(session["cache"], [session], backend):
             words.append({**w, "startMs": w["startMs"] + offset_ms, "endMs": w["endMs"] + offset_ms})
         offset_ms += session["durationMs"]

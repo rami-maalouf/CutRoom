@@ -15,7 +15,7 @@ Set it in the project file: `"style": "reaction"`. A plain video file has one au
 
 A reaction is often recorded in parts. `cutroom join a.screenstudio b.screenstudio --output both.screenstudio` makes one project that plays them in order, as if the recording had been paused and resumed: the later recordings become the next sessions (renamed APFS clones, nothing re-encoded, no extra disk), their slices and zooms move to where their sessions start, and the first project's look and layout are kept. It refuses recordings from another setup (other channels, display or camera size). Then edit the joined project like any other.
 
-Screen Studio cannot be opened from an agent's shell, so say so and ask the user to open the joined project (`open -a "Screen Studio (latest)" both.screenstudio`). Offer per-part projects with the same slices as a fallback.
+Open the joined project with the app's full path, with the shell's sandbox off: `open -a "/Applications/Screen Studio (latest).app" both.screenstudio` (the app's name alone returns 0 and launches nothing). Check that a `Project - <name>` window appears; if it does not, ask the user to open it. Offer per-part projects with the same slices as a fallback.
 
 ## Clean-up
 

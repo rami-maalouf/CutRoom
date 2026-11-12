@@ -31,6 +31,8 @@ From the Expo team's notes on the SDK 58 video (2026-10-16).
 
 ## Vlogs
 
+- **advice-vlog chosen moments (2026-11-12, later revision).** rami specifically asked to restore counting the women and the talking-to-himself lead-in, ending exactly after the woman says do what you love. keep invest in crypto as that line alone and the axe advice as his advice alone. include wiggly, both singing moments, the explanation introducing linger and the guitarist, and the celebration after singing. these explicit scene choices supersede the earlier preference inferred from his low-energy feedback for this revision.
+
 - **advice-vlog teaser energy (2026-11-12).** the first 39-second experiment kept the premise intro but followed it with awkwardness, an explanation of curiosity, and a retired teacher's advice. rami liked the intro but called the rest boring and low-energy. for this teaser, keep the intro and build with active participation, comic exchanges, reactions, and shared celebration; explaining connection is not a substitute for showing it.
 
 - **Scenes play whole (2026-10-21, Hack the North).** The 12-minute cut felt disconnected: 53 of its 78 selects were under 10 seconds, and 30 joins jumped forward inside one conversation, so clips started and stopped at odd times. Rami: "some clips deserve the full view time... keep the whole thing so people can be immersed in a specific scene", and "don't worry about duration: if a clip deserves its spot, keep it". A scene plays from where it starts to where it resolves; cut between scenes, not inside them. Every moment judged gets a verdict and a reason (the inclusion list), so he can bring back what was left out.

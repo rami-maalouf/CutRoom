@@ -31,7 +31,7 @@ From the Expo team's notes on the SDK 58 video (2026-10-16).
 
 ## Vlogs
 
-- **advice-vlog chosen moments (2026-11-12, later revision).** rami specifically asked to restore counting the women and the talking-to-himself lead-in, ending exactly after the woman says do what you love. keep invest in crypto as that line alone and the axe advice as his advice alone. include wiggly, both singing moments, the explanation introducing linger and the guitarist, and the celebration after singing. these explicit scene choices supersede the earlier preference inferred from his low-energy feedback for this revision.
+- **advice-vlog chosen moments (2026-11-12, latest revision).** keep the premise intro, only the counting of fifteen women, and invest in crypto alone. the self-talk sequence is i love doing these things through social script, the ahlen khayya greeting, then it becomes the natural social script to ignore me. jump directly to do not ever try to catch an axe, removing i guess my bad career advice. remove wiggly. keep only the second source shot of each singing performance, begin the final setup at we got a song recommendation, and keep the celebration. these precise latest choices supersede earlier selections for this edit.
 
 - **advice-vlog teaser energy (2026-11-12).** the first 39-second experiment kept the premise intro but followed it with awkwardness, an explanation of curiosity, and a retired teacher's advice. rami liked the intro but called the rest boring and low-energy. for this teaser, keep the intro and build with active participation, comic exchanges, reactions, and shared celebration; explaining connection is not a substitute for showing it.
 

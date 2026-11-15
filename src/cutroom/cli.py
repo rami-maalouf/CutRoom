@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import __version__, folder, project
-from .core import (Range, clean_segments, drop_hallucinated_words, invert_cuts, join_window, merge_ranges,
+from .core import (Range, clean_segments, drop_hallucinated_words, invert_cuts, join_window, merge_ranges, played_words,
                    resolve_pacing, snap_range, subtract_ranges)
 from .fcpxml import read_keeps, write_fcpxml, write_timeline
 from .media import collect_silences, frame_strip, probe_video, render, require_ffmpeg, versioned_output
@@ -657,9 +657,65 @@ def export_text_job(job, item: dict, video: Path, force: bool) -> Path:
     return dst
 
 
+def export_reel_job(job, item: dict, dst: Path | None) -> Path:
+    # the bridge to the highlight-reel skill (openmontage): which seconds play,
+    # in what order, with the words heard in each piece. cutroom decides the
+    # moments; the skill decides the look and the music.
+    iid = item["id"]
+    if not iid.upper().startswith("S"):
+        sys.exit(f"--reel works on a short (S1 ...), not {iid}")
+    if "reel" not in item:
+        sys.exit(f"{iid} has no \"reel\" in {project.project_path(job.src).name}: "
+                 "add the reel block (cards, overlays, music) first: see references/highlight.md")
+    words = job.plan.all_words
+    starts = [w["startMs"] for w in words]
+    raw = item.get("raw", False)
+    pieces = []
+    for n, seg in enumerate(item.get("segments") or [item]):
+        rng = project.segments({"segments": [seg]}, job.offsets)
+        for file, a, b, _ in job.media_segments(job.clean(rng, raw=raw)):
+            # word times are on the timeline: a and b are inside the clip
+            lo = _clip_start(job, file) + a
+            hi = lo + (b - a)
+            heard = [words[i] for i in played_words(words, starts, lo, hi)]
+            pieces.append({"segment": n, "file": str(Path(file).resolve()),
+                           "start": round(a / 1000, 3), "end": round(b / 1000, 3),
+                           "words": [[round(max(0.0, (w["startMs"] - lo) / 1000), 3),
+                                      round(min(hi - lo, w["endMs"] - lo) / 1000, 3), w["word"].strip()]
+                                     for w in heard]})
+    played = sum(p["end"] - p["start"] for p in pieces)
+    segments = [{k: v for k, v in seg.items() if k not in ("start", "end", "clip")}
+                for seg in (item.get("segments") or [item])]
+    dst = dst or job.exports / f"{job.stem}-{iid}.reel.json"
+    data = {"short": iid, "title": item.get("title", ""), "project": str(project.project_path(job.src)),
+            "seconds": round(played, 2), "segments": segments, "pieces": pieces, "reel": item["reel"]}
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"wrote reel job: {dst} ({len(pieces)} pieces, {played:.1f}s of footage)")
+    if not 25 <= played <= 90:
+        print(f"  check: {played:.1f}s of footage; a highlight reel plays 30-90 s with its cards")
+    print(f"next: reel.py plan {json.dumps(str(dst))}  (the highlight-reel skill in openmontage)")
+    return dst
+
+
+def _clip_start(job, file) -> float:
+    # where a clip starts on the timeline (ms): 0 for a single file
+    acc = 0.0
+    for sess in job.sessions:
+        if str(sess["path"]) == str(file):
+            return acc
+        acc += sess["durationMs"]
+    return 0.0
+
+
 def run_export(args) -> None:
     args.yes = True
     job = make_plan(args.source, args)
+    if args.reel is not None:
+        if len(args.ids) != 1:
+            sys.exit("--reel writes the job for one short: give one id, like S5")
+        export_reel_job(job, project.find(job.data, args.ids[0]), Path(args.reel) if args.reel else None)
+        return
     if args.text:
         if len(args.ids) != 1:
             sys.exit("--text writes the job for one short: give one id, like S6")
@@ -886,6 +942,9 @@ def main(argv: list[str] | None = None) -> None:
                    help="write a shorts-text job for one short instead: its approved copy (headline and calls to "
                         "action) on this finished export of it, as <video>.text.json next to the export")
     p.add_argument("--force", action="store_true", help="with --text: also write copy that is not approved yet")
+    p.add_argument("--reel", nargs="?", const="", default=None, metavar="JOB",
+                   help="write a highlight-reel job for one short instead: the pieces that play with their words "
+                        "and the short's \"reel\" block, as <source>-S5.reel.json next to the source (or JOB)")
     p.set_defaults(run=run_export)
 
     p = sub.add_parser("import", help="make a final cut pro timeline (exported xml) the edit")

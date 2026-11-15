@@ -78,4 +78,4 @@ Commercial songs are for choosing. Before posting, Rami adds the chosen song fro
 
 ## 5-6. Render, pick, finish
 
-`cutroom export <source> S5 --reel`, then in OpenMontage: `reel.py render <job>` (see the highlight-reel skill). It writes `auditions.html`: the same cut with each song. Rami picks one; set `"chosen"` in the short's reel block, export again, and run `reel.py mix <job>` (the music only, seconds). Every correction Rami makes becomes a rule here or in taste.md.
+`cutroom export <source> S5 --reel`, then in OpenMontage: `reel.py render <job>` (see the highlight-reel skill). It writes `auditions.html`: the same cut with each song. Rami picks one; set `"chosen"` in the short's reel block, export again, and run `reel.py mix <job>` (the music only, seconds). For Final Cut Pro, `reel.py fcpxml <job>` writes the timeline with real titles and the song on keyframes. Every correction Rami makes becomes a rule here or in taste.md.

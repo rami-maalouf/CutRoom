@@ -101,6 +101,7 @@ def build_script(job) -> str:
         source = f"{item['clip']} {_clock(item['start'])}-{_clock(item['end'])}" if "clip" in item \
             else f"{_clock(item['start'])}-{_clock(item['end'])}"
         out.append(f"source: {source}" + ("" if segs else "  (NOTHING LEFT AFTER CUTS)"))
+        out += [f"marker at {_clock(m['at'])}: {m['text']}" for m in item.get("markers", [])]
         out.append(f"> {_spoken(words, starts, segs, heard, heard_starts)}" if segs else "> (empty)")
         out.append("")
         at += length

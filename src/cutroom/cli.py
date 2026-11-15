@@ -703,17 +703,29 @@ def run_export(args) -> None:
             path = job.exports / f"{job.stem}{tag}.fcpxml"
             dst = path if job.kind == "folder" else versioned_output(path, job.src)
             # a program range can cross a clip join; chapters go on its first piece
-            segments, seg_chapters, last_piece = [], {}, {}
+            segments, seg_chapters, last_piece, seg_ids = [], {}, {}, []
             for i, r in enumerate(ranges):
                 speed = job.speed(r[2]) if len(r) > 2 else 1.0
                 parts = [(*p, speed) for p in job.media_segments([r])]
                 if i in chapters and parts:
                     seg_chapters[len(segments)] = chapters[i]
                 segments += parts
+                seg_ids += [r[2] if len(r) > 2 else None] * len(parts)
                 if parts and len(r) > 2:
                     last_piece[r[2]] = len(segments) - 1
-            # talking heads to record: a marker where each one goes
+            # a select's own markers, on the piece that plays that moment
             notes = []
+            for item in job.data["selects"]:
+                for m in item.get("markers", []):
+                    path = job.src / item["clip"] if "clip" in item else job.src
+                    ms = m["at"] * 1000
+                    k = next((k for k, seg in enumerate(segments) if seg_ids[k] == item["id"]
+                              and seg[0] == path and seg[1] <= ms < seg[2]), None)
+                    if k is None:
+                        print(f"{item['id']}: marker at {m['at']}s does not play (removed by a cut): {m['text']}")
+                    else:
+                        notes.append((k, ms, m["text"]))
+            # talking heads to record: a marker where each one goes
             if iid.lower() in ("vlog", "clean"):
                 for after, pickups in project.pickups_after(job.data).items():
                     at = (0, False) if after == "start" else (last_piece.get(after), True)

@@ -115,7 +115,8 @@ def write_timeline(
     # frame-aligned rational times: clip starts sit on each file's own frame
     # grid (offset by the file's timecode, which fcp reads), offsets and
     # durations on the sequence grid. chapters: segment index -> title.
-    # notes: (segment index, at its end?, text) markers, e.g. a talking head to record.
+    # notes: (segment index, where, text) markers: where is True (its end), False
+    # (its start) or a time in ms in the segment's file, e.g. a name to put on screen.
     chapters = chapters or {}
     media = {}
     for seg in segments:
@@ -205,8 +206,13 @@ def write_timeline(
             m_fr = max(round(ms / 1000 * fps), start_fr)
             inner += (f'\n            <marker start="{clip_at(m_fr)}" '
                       f'duration="{at(1, fps)}" value={quoteattr(text)}/>')
-        for _, at_end, text in [n for n in notes if n[0] == i]:
-            n_fr = max(end_fr - 1, start_fr) if at_end else start_fr
+        for _, where, text in [n for n in notes if n[0] == i]:
+            if where is True:
+                n_fr = max(end_fr - 1, start_fr)
+            elif where is False:
+                n_fr = start_fr
+            else:
+                n_fr = min(max(round(where / 1000 * fps), start_fr), max(end_fr - 1, start_fr))
             inner += (f'\n            <marker start="{clip_at(n_fr)}" '
                       f'duration="{at(1, fps)}" value={quoteattr(text)}/>')
         tc = ' tcFormat="DF"' if a["tcFormat"] == "DF" else ""

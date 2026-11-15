@@ -239,3 +239,27 @@ def test_speed_is_checked_and_refused_where_it_cannot_play(shoot):
     save(shoot, selects=[], shorts=[{"id": "S1", "clip": "cam/a.mp4", "start": 0.0, "end": 6.0, "speed": 2}])
     with pytest.raises(SystemExit, match="selects only"):
         main(["review", str(shoot)])
+
+
+def test_select_markers_land_where_the_moment_plays(shoot):
+    # a marker at a source time lands on the piece that plays it, even when an
+    # earlier select (the hook) plays the same clip, and inside a sped-up select
+    save(shoot, selects=[
+        {"id": "V1", "clip": "cam/a.mp4", "start": 4.0, "end": 6.0, "raw": True},
+        {"id": "V2", "clip": "cam/a.mp4", "start": 0.0, "end": 6.0, "raw": True, "speed": 2,
+         "markers": [{"at": 5.0, "text": "Karen, valid.site"}]},
+    ])
+    main(["export", str(shoot), "vlog"])
+    root = ET.parse(shoot / "cutroom" / "exports" / "shoot-vlog.fcpxml").getroot()
+    clips = root.findall(".//spine/asset-clip")
+    assert clips[0].find("marker") is None
+    mark = clips[1].find("marker")
+    assert mark.get("value") == "Karen, valid.site"
+    # 5 s into the source is 2.5 s into the clip's own (2x) time
+    assert Fraction(mark.get("start")[:-1]) - Fraction(clips[1].get("start")[:-1]) == pytest.approx(2.5, abs=0.05)
+    main(["script", str(shoot)])
+    assert "marker at 0:05.0: Karen, valid.site" in (shoot / "cutroom" / "script.md").read_text(encoding="utf-8")
+    save(shoot, selects=[{"id": "V1", "clip": "cam/a.mp4", "start": 0.0, "end": 2.0,
+                          "markers": [{"at": 5.0, "text": "outside"}]}])
+    with pytest.raises(SystemExit, match="markers"):
+        main(["review", str(shoot)])

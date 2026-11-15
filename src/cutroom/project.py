@@ -24,6 +24,10 @@
 # the review page plays it at that speed with its sound sped up too, the
 # read-through counts its play length, and the fcpxml retimes the clip.
 #
+# a select may carry "markers": [{"at": s, "text": "..."}], notes for the
+# person finishing the edit (a name to put on screen, a sound to fix). "at" is
+# seconds in the select's clip, inside the select; the fcpxml puts a marker there.
+#
 # shorts may also carry what the review page sorts and groups them by:
 # "theme" (text), "rank" (1 = review first), "score" (0-10, overall quality),
 # "scores" ({"hook": 8, "standalone": 9, ...}, each 0-10) and "tags" (["v04"]).
@@ -159,6 +163,14 @@ def validate(data: dict, path: Path, clips: set[str] | None) -> None:
         value = item.get("speed", 1)
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= MAX_SPEED:
             sys.exit(f"{path.name}: {item.get('id')} \"speed\" must be a number above 0 and at most {MAX_SPEED}, got {value!r}")
+    for item in data["selects"]:
+        marks = item.get("markers", [])
+        if not isinstance(marks, list) or not all(
+                isinstance(m, dict) and isinstance(m.get("text"), str) and m["text"]
+                and isinstance(m.get("at"), (int, float)) and not isinstance(m["at"], bool)
+                and item.get("start", 0) <= m["at"] <= item.get("end", 0) for m in marks):
+            sys.exit(f"{path.name}: {item.get('id')} \"markers\" must be a list of "
+                     f"{{\"at\": seconds inside the select, \"text\": \"...\"}}")
     for item in data["shorts"]:
         if "speed" in item:
             sys.exit(f"{path.name}: {item.get('id')} \"speed\" is for selects only")

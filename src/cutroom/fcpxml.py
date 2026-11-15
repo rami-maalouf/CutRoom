@@ -85,7 +85,7 @@ def probe_media(video: Path) -> dict:
     return info
 
 
-Segment = tuple  # (media path, start_ms, end_ms) or (media path, start_ms, end_ms, label)
+Segment = tuple  # (media path, start_ms, end_ms[, label[, speed]])
 
 
 def write_fcpxml(
@@ -173,12 +173,29 @@ def write_timeline(
         a = assets[path]
         fps = a["fps"]
         start_fr, end_fr = round(s_ms / 1000 * fps), round(e_ms / 1000 * fps)
-        dur_seq = round((end_fr - start_fr) / fps * seq_fps)
+        speed = Fraction(seg[4]).limit_denominator(1000) if len(seg) > 4 else Fraction(1)
+        n = round((end_fr - start_fr) / speed)  # the clip's frames after its retime
+        dur_seq = round(n / fps * seq_fps)
         if dur_seq <= 0:
             continue
+
+        def clip_at(fr: int) -> str:
+            # a source frame -> the clip's own time, which a retime compresses
+            return at(a["tc"] + start_fr + round((fr - start_fr) / speed), fps)
+
         inner = ""
+        if speed != 1:
+            # a constant retime: the clip's own time runs from its start, and each
+            # frame of it plays `speed` frames of the source. preservesPitch 0:
+            # the sound speeds up with the picture, like a fast-forward
+            t0 = Fraction(a["tc"] + start_fr) / fps
+            inner += (f'\n            <timeMap preservesPitch="0">'
+                      f'\n              <timept time="{_rt(t0)}" value="{_rt(t0)}" interp="linear"/>'
+                      f'\n              <timept time="{_rt(t0 + Fraction(n) / fps)}" '
+                      f'value="{_rt(t0 + Fraction(n) * speed / fps)}" interp="linear"/>'
+                      f'\n            </timeMap>')
         if i in chapters:
-            inner += (f'\n            <chapter-marker start="{at(a["tc"] + start_fr, fps)}" '
+            inner += (f'\n            <chapter-marker start="{clip_at(start_fr)}" '
                       f'duration="{at(1, fps)}" value={quoteattr(chapters[i])} posterOffset="0s"/>')
         # a marker lands on the first clip of its file that ends after it:
         # the clip holding the kept take, even when its cut merged with silence
@@ -186,11 +203,11 @@ def write_timeline(
         while queue and round(queue[0][0] / 1000 * fps) < end_fr:
             ms, text = queue.pop(0)
             m_fr = max(round(ms / 1000 * fps), start_fr)
-            inner += (f'\n            <marker start="{at(a["tc"] + m_fr, fps)}" '
+            inner += (f'\n            <marker start="{clip_at(m_fr)}" '
                       f'duration="{at(1, fps)}" value={quoteattr(text)}/>')
         for _, at_end, text in [n for n in notes if n[0] == i]:
             n_fr = max(end_fr - 1, start_fr) if at_end else start_fr
-            inner += (f'\n            <marker start="{at(a["tc"] + n_fr, fps)}" '
+            inner += (f'\n            <marker start="{clip_at(n_fr)}" '
                       f'duration="{at(1, fps)}" value={quoteattr(text)}/>')
         tc = ' tcFormat="DF"' if a["tcFormat"] == "DF" else ""
         label = seg[3] if len(seg) > 3 else f"{path.stem} {s_ms / 1000:.1f}s"
@@ -225,6 +242,11 @@ def write_timeline(
 '''
     dst.write_text(xml, encoding="utf-8")
     print(f"wrote fcpxml timeline: {dst} ({len(clips)} clips from {len(media)} files)")
+
+
+def _rt(t: Fraction) -> str:
+    # seconds as an fcpxml rational time
+    return "0s" if t == 0 else f"{t.numerator}/{t.denominator}s" if t.denominator != 1 else f"{t.numerator}s"
 
 
 def _time(value: str | None) -> Fraction:

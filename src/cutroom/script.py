@@ -54,7 +54,7 @@ def build_script(job) -> str:
     starts = [w["startMs"] for w in words]
     heard = job.plan.heard_words
     heard_starts = [w["startMs"] for w in heard]
-    total = sum(r[1] - r[0] for r in job.program) / 1000
+    total = job.play_ms(job.program) / 1000
     pickups = job.data["pickups"]
     after = project.pickups_after(job.data)
     placed = [p for p in pickups if p.get("after") and (p["after"] == "start" or job.data["selects"])]
@@ -88,11 +88,13 @@ def build_script(job) -> str:
     at, chapter = 0.0, None
     for item in job.data["selects"]:
         segs = by_id.get(item["id"], [])
-        length = sum(e - s for s, e, _ in segs) / 1000
+        length = job.play_ms(segs) / 1000
         if item.get("chapter") and item["chapter"] != chapter:
             chapter = item["chapter"]
             out += ["", f"## {chapter}", ""]
-        tags = [t for t in (item.get("beat"), item.get("role"), "raw" if item.get("raw") else None) if t]
+        speed = project.speed(item)
+        tags = [t for t in (item.get("beat"), item.get("role"), "raw" if item.get("raw") else None,
+                            f"{speed:g}x" if speed != 1 else None) if t]
         out.append(f"### {item['id']}  [{_clock(at)}, {length:.1f}s]" + (f"  {' · '.join(tags)}" if tags else ""))
         if item.get("intent"):
             out.append(f"intent: {item['intent']}")

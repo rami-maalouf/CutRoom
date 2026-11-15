@@ -128,6 +128,21 @@ class Job:
             return [r for r in subtract_ranges(ranges, manual) if r[1] - r[0] > 50]
         return clean_segments(self.plan.keeps, ranges)
 
+    def speed(self, select_id) -> float:
+        # the speed a program range plays at, from its select
+        item = next((s for s in self.data["selects"] if s["id"] == select_id), None)
+        return project.speed(item) if item else 1.0
+
+    def play_ms(self, ranges) -> float:
+        # how long ranges take to play: (start, end, select id) ranges count their speed
+        return sum((r[1] - r[0]) / (self.speed(r[2]) if len(r) > 2 else 1) for r in ranges)
+
+    def no_speed(self, ranges, what: str) -> None:
+        # only an fcpxml can retime a clip: refuse instead of playing it at 1x
+        fast = sorted({r[2] for r in ranges if len(r) > 2 and self.speed(r[2]) != 1})
+        if fast:
+            sys.exit(f"{what} cannot play a select faster ({', '.join(fast)} has a \"speed\"): export fcpxml")
+
     def item_segments(self, item: dict) -> list[Range]:
         return self.clean(project.segments(item, self.offsets), raw=item.get("raw", False))
 
@@ -275,7 +290,7 @@ def make_plan(path: Path, args) -> Job:
 def summarize(job: Job) -> None:
     plan = job.plan
     if job.data["selects"]:
-        kept = sum(e - s for s, e, _ in job.program) / 1000
+        kept = job.play_ms(job.program) / 1000
         print(f"\nprogram: {len(job.data['selects'])} selects, {len(job.program)} segments, "
               f"{kept / 60:.1f} min from {plan.total_ms / 60000:.1f} min of footage")
         return
@@ -299,6 +314,7 @@ def run_project(args) -> None:
         # a screen studio project keeps recorded order: the selects decide what
         # stays, not the order (for a reordered cut, export fcpxml from the export)
         print("selects: keeping their content in recorded order (screen studio projects are not reordered)")
+        job.no_speed(job.program, "a screen studio project")
         cuts = invert_cuts(merge_ranges([(s, e) for s, e, _ in job.program]), job.plan.total_ms)
     write_cut_package(job.src, cuts, args.output)
 
@@ -332,8 +348,13 @@ def run_video(args) -> None:
         markers = [] if job.data["selects"] else [
             (d["endMs"], f"{d['id']} {d['reason']} cut, kept: {(d.get('kept') or '')[:80]}")
             for d in plan.cut_decisions]
-        write_fcpxml(src, ranges, dst, plan.total_ms, markers)
+        if any(job.speed(i) != 1 for _, _, i in job.program):
+            write_timeline([(src, s, e, f"{src.stem} {s / 1000:.1f}s", job.speed(i)) for s, e, i in job.program],
+                           dst, f"{src.stem} (CutRoom)")
+        else:
+            write_fcpxml(src, ranges, dst, plan.total_ms, markers)
         return
+    job.no_speed(job.program, "an mp4")
     dst = versioned_output(args.output or src.with_name(f"{src.stem}-clean{src.suffix}"), src)
     render(src, ranges, dst)
     print(f"wrote: {dst}")
@@ -567,6 +588,8 @@ def export_to_screenstudio(job, item: dict, packages: list[Path], backend) -> No
     # becomes a new project with only that part: <project>-S2.screenstudio
     if job.kind == "screenstudio":
         return
+    if project.speed(item) != 1:
+        sys.exit(f"a screen studio project cannot play a select faster ({item['id']} has a \"speed\"): export fcpxml")
     # the words each piece really plays, from its own audio: the video's
     # transcript can time an edge word just outside the piece, though it is heard
     keeps = job.item_segments(item)
@@ -654,19 +677,23 @@ def run_export(args) -> None:
         else:
             item = project.find(job.data, iid)
             ranges, chapters = job.item_segments(item), {}
+            if item["id"] in {s["id"] for s in job.data["selects"]}:
+                ranges = [(a, b, item["id"]) for a, b in ranges]
             name, tag = f"{job.stem} {item['id']} {item.get('title', '')}".strip(), f"-{item['id']}"
         if not ranges:
             print(f"{iid}: nothing of the clean cut falls inside it")
             continue
-        clean_s = sum(r[1] - r[0] for r in ranges) / 1000
+        clean_s = job.play_ms(ranges) / 1000
         print(f"\n{name}: {len(ranges)} segments, {clean_s / 60:.1f} min")
         job.exports.mkdir(parents=True, exist_ok=True)
         if job.kind == "screenstudio":
+            job.no_speed(ranges, "a screen studio project")
             keeps = merge_ranges([(r[0], r[1]) for r in ranges])
             write_cut_package(job.src, invert_cuts(keeps, job.plan.total_ms), None, tag)
         elif args.format == "mp4":
             if job.kind == "folder":
                 sys.exit("mp4 export of a folder is not supported yet - export fcpxml")
+            job.no_speed(ranges, "an mp4")
             dst = versioned_output(job.exports / f"{job.stem}{tag}.mp4", job.src)
             render(job.src, [(r[0], r[1]) for r in ranges], dst)
             print(f"wrote: {dst}")
@@ -678,7 +705,8 @@ def run_export(args) -> None:
             # a program range can cross a clip join; chapters go on its first piece
             segments, seg_chapters, last_piece = [], {}, {}
             for i, r in enumerate(ranges):
-                parts = job.media_segments([r])
+                speed = job.speed(r[2]) if len(r) > 2 else 1.0
+                parts = [(*p, speed) for p in job.media_segments([r])]
                 if i in chapters and parts:
                     seg_chapters[len(segments)] = chapters[i]
                 segments += parts

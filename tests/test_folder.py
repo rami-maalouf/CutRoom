@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+from fractions import Fraction
 
 import pytest
 
@@ -191,3 +192,50 @@ def test_retake_crossing_a_select_edge_does_not_erase_it(shoot):
     data = page_data(shoot)
     assert [d["id"] for d in data["decisions"]] == ["R1"]
     assert data["selects"][0]["keeps"][0][0] >= 3.9
+
+
+def test_a_sped_up_select_plays_faster_everywhere(shoot):
+    # "speed": 4 plays a select at 4x: the page, the read-through and the
+    # fcpxml retime (sound sped up too) all count its play time
+    save(shoot, selects=[
+        {"id": "V1", "clip": "phone/c.mov", "start": 0.0, "end": 2.0, "chapter": "Morning", "raw": True},
+        {"id": "V2", "clip": "cam/a.mp4", "start": 0.0, "end": 6.0, "speed": 4, "raw": True},
+    ])
+    main(["review", str(shoot)])
+    data = page_data(shoot)
+    assert [r[3] for r in data["program"]] == [1.0, 4.0]
+    assert data["keeps"][1][2] == 4.0 and data["selects"][1]["speed"] == 4.0
+    played = sum((r[1] - r[0]) / r[3] for r in data["program"])
+    assert data["keptSeconds"] == pytest.approx(played, abs=0.01)
+    assert data["keptSeconds"] < data["program"][0][1] - data["program"][0][0] + 2
+
+    main(["script", str(shoot)])
+    script = (shoot / "cutroom" / "script.md").read_text(encoding="utf-8")
+    assert re.search(r"### V2  \[[^\]]+, 1\.[45]s\]  raw · 4x", script)
+
+    main(["export", str(shoot), "vlog"])
+    out = shoot / "cutroom" / "exports" / "shoot-vlog.fcpxml"
+    root = ET.parse(out).getroot()
+    clips = root.findall(".//spine/asset-clip")
+    assert clips[0].find("timeMap") is None
+    tm = clips[1].find("timeMap")
+    assert tm.get("preservesPitch") == "0"
+    (t0, v0), (t1, v1) = [(Fraction(p.get("time")[:-1] or 0), Fraction(p.get("value")[:-1] or 0))
+                          for p in tm.findall("timept")]
+    assert t0 == v0 and (v1 - v0) == 4 * (t1 - t0)
+    assert Fraction(clips[1].get("duration")[:-1]) == t1 - t0
+    if FCP_DTDS and shutil.which("xmllint"):
+        dtd = shoot / "fcpxml.dtd"
+        shutil.copyfile(FCP_DTDS[0], dtd)
+        result = subprocess.run(["xmllint", "--noout", "--dtdvalid", str(dtd), str(out)],
+                                capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+
+
+def test_speed_is_checked_and_refused_where_it_cannot_play(shoot):
+    save(shoot, selects=[{"id": "V1", "clip": "cam/a.mp4", "start": 0.0, "end": 6.0, "speed": "fast"}])
+    with pytest.raises(SystemExit, match="speed"):
+        main(["review", str(shoot)])
+    save(shoot, selects=[], shorts=[{"id": "S1", "clip": "cam/a.mp4", "start": 0.0, "end": 6.0, "speed": 2}])
+    with pytest.raises(SystemExit, match="selects only"):
+        main(["review", str(shoot)])

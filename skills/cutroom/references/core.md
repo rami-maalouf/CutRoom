@@ -110,6 +110,7 @@ The review page shows each one on its To record tab (a shot list), in the Vlog l
 
 - `role`: `hook`, `setup`, `process`, `payoff`, `reaction`, `bridge`, `broll`, `ending`.
 - `raw: true`: the moment plays as it happened (no silence or retake cuts inside). Use it whenever the imperfection is the point.
+- `speed: 4`: the select plays 4x faster, its sound sped up too (a fast-forward). The review page plays it so, the read-through counts its play time, and the FCPXML retimes the clip. Selects only; an mp4 or a Screen Studio export refuses it.
 - For a single file, leave out `clip`. Times are seconds in that clip.
 
 ## Shorts

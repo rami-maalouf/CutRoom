@@ -19,6 +19,11 @@
 # "raw": true, which plays the moment as it happened: no silence or retake
 # cuts inside it, only its edges and manual cuts.
 #
+# a select may carry "speed": 4 to play its moment faster (a sped-up stretch:
+# the walk between scenes, small talk worth seeing but not hearing in full).
+# the review page plays it at that speed with its sound sped up too, the
+# read-through counts its play length, and the fcpxml retimes the clip.
+#
 # shorts may also carry what the review page sorts and groups them by:
 # "theme" (text), "rank" (1 = review first), "score" (0-10, overall quality),
 # "scores" ({"hook": 8, "standalone": 9, ...}, each 0-10) and "tags" (["v04"]).
@@ -68,6 +73,12 @@ COPY_KINDS = ("headline", "cta")
 COPY_STATUS = ("proposed", "approved")
 COPY_KEYS = {"kind", "text", "at", "hold", "until", "end", "top"}
 VERDICTS = ("in", "out")
+MAX_SPEED = 20
+
+
+def speed(item: dict) -> float:
+    # how fast a select plays: 1 unless it says otherwise
+    return float(item.get("speed", 1))
 
 
 def project_path(src: Path) -> Path:
@@ -144,6 +155,13 @@ def validate(data: dict, path: Path, clips: set[str] | None) -> None:
     check_ignore(data.get("ignore", []), path)
     if data.get("style") not in STYLES:
         sys.exit(f"{path.name}: style must be one of {', '.join(STYLES)}, got {data.get('style')!r}")
+    for item in data["selects"]:
+        value = item.get("speed", 1)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= MAX_SPEED:
+            sys.exit(f"{path.name}: {item.get('id')} \"speed\" must be a number above 0 and at most {MAX_SPEED}, got {value!r}")
+    for item in data["shorts"]:
+        if "speed" in item:
+            sys.exit(f"{path.name}: {item.get('id')} \"speed\" is for selects only")
     for item in data["selects"] + data["shorts"]:
         if "raw" in item and not isinstance(item["raw"], bool):
             sys.exit(f"{path.name}: {item.get('id')} \"raw\" must be true or false")

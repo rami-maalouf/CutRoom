@@ -318,7 +318,8 @@ def review_html(job, media_uri=None, served: bool = False) -> str:
     data["served"] = served
     data["pickups"] = job.data["pickups"]
     # every page needs the program: pickups and slates are placed on it
-    data["program"] = [[*_secs(r), r[2]] for r in job.program]
+    # each range carries its speed: [start, end, select id, speed]
+    data["program"] = [[*_secs(r), r[2], job.speed(r[2])] for r in job.program]
     data["story"] = markdown(story_text(job))
     if job.kind == "folder":
         words = plan.words or []
@@ -327,11 +328,12 @@ def review_html(job, media_uri=None, served: bool = False) -> str:
             span = project.segments(item, job.offsets)[0]
             raw.append(span)
             text = " ".join(w["word"] for w in words if span[0] <= w["startMs"] < span[1])
-            keeps = [_secs(r) for r in job.item_segments(item)]
+            keeps = [[*_secs(r), project.speed(item)] for r in job.item_segments(item)]
             selects.append({"id": item["id"], "chapter": item.get("chapter", ""), "title": item.get("title", ""),
                             "why": item.get("why", ""), "where": _where(item), "text": text, "keeps": keeps,
                             "beat": item.get("beat", ""), "role": item.get("role", ""),
-                            "intent": item.get("intent", ""), "raw": bool(item.get("raw"))})
+                            "intent": item.get("intent", ""), "raw": bool(item.get("raw")),
+                            "speed": project.speed(item)})
         # the inclusion list: each judged moment with its verdict, reason and the selects that play it
         played = project.inclusion_selects(job.data, job.offsets)
         inclusions = []
@@ -344,8 +346,8 @@ def review_html(job, media_uri=None, served: bool = False) -> str:
                                "text": text, "selects": played[item["id"]]})
         data.update(
             inclusions=inclusions,
-            keeps=[_secs(r) for r in job.program],
-            keptSeconds=round(sum(r[1] - r[0] for r in job.program) / 1000, 3),
+            keeps=[[*_secs(r), job.speed(r[2])] for r in job.program],
+            keptSeconds=round(job.play_ms(job.program) / 1000, 3),
             chapters={str(i): title for i, title in job.chapters.items()},
             selects=selects,
             sentences=[x for x in data["sentences"]
@@ -714,7 +716,11 @@ const fmt = (t) => { t = Math.max(0, t); const m = Math.floor(t / 60), s = t - m
 const mmss = (t) => `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, "0")}`;
 const hours = (t) => t >= 3600 ? `${(t / 3600).toFixed(1)} h` : fmt(t);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-const spans = (r) => r.reduce((n, [s, e]) => n + (e - s), 0);
+// a range is [start, end], [start, end, speed] or [start, end, select id, speed]:
+// a sped-up select takes (end - start) / speed of play time
+const speedOf = (r) => (typeof r[2] === "number" ? r[2] : r[3]) || 1;
+const len = (r) => (r[1] - r[0]) / speedOf(r);
+const spans = (r) => r.reduce((n, x) => n + len(x), 0);
 const FOLDER = D.kind === "folder";
 
 // ---------- media: one element, one or more files on a single source timeline ----------
@@ -773,7 +779,7 @@ const AX = FOLDER ? Math.max(spans(D.keeps), 0.001) : D.durationSeconds;
 function axisOf(t) {
   if (!FOLDER) return t;
   let acc = 0;
-  for (const [s, e] of D.keeps) { if (t >= s - 0.01 && t <= e + 0.01) return acc + Math.min(Math.max(t - s, 0), e - s); acc += e - s; }
+  for (const r of D.keeps) { const [s, e] = r; if (t >= s - 0.01 && t <= e + 0.01) return acc + Math.min(Math.max(t - s, 0), e - s) / speedOf(r); acc += len(r); }
   return null;
 }
 function spanOf(a, b) {
@@ -781,14 +787,15 @@ function spanOf(a, b) {
   // plays: the hook can replay a moment that plays again later in the vlog
   const groups = new Map();
   let acc = 0;
-  D.program.forEach(([s, e, id]) => {
+  D.program.forEach((r) => {
+    const [s, e, id] = r, k = speedOf(r);
     const lo = Math.max(a, s), hi = Math.min(b, e);
     if (hi > lo) {
       const g = groups.get(id) || { overlap: 0, x0: Infinity, x1: -Infinity };
-      g.overlap += hi - lo; g.x0 = Math.min(g.x0, acc + lo - s); g.x1 = Math.max(g.x1, acc + hi - s);
+      g.overlap += hi - lo; g.x0 = Math.min(g.x0, acc + (lo - s) / k); g.x1 = Math.max(g.x1, acc + (hi - s) / k);
       groups.set(id, g);
     }
-    acc += e - s;
+    acc += len(r);
   });
   let best = null;
   groups.forEach((g) => { if (!best || g.overlap > best.overlap) best = g; });
@@ -798,9 +805,9 @@ function programAt(x, list = D.keeps) {
   // axis position -> [range index, source time]
   let acc = 0;
   for (let i = 0; i < list.length; i++) {
-    const [s, e] = list[i];
-    if (x < acc + (e - s)) return [i, s + (x - acc)];
-    acc += e - s;
+    const s = list[i][0];
+    if (x < acc + len(list[i])) return [i, s + (x - acc) * speedOf(list[i])];
+    acc += len(list[i]);
   }
   return [list.length - 1, list[list.length - 1][1]];
 }
@@ -842,7 +849,11 @@ function tick() {
   }
   const t = now();
   const inProgram = mode === "clean" && playlist === D.keeps;
-  const x = inProgram ? spans(D.keeps.slice(0, idx)) + Math.max(0, t - (D.keeps[idx] || [t])[0]) : axisOf(t);
+  const x = inProgram ? spans(D.keeps.slice(0, idx)) + Math.max(0, t - (D.keeps[idx] || [t])[0]) / speedOf(D.keeps[idx] || [t, t]) : axisOf(t);
+  // a sped-up select plays faster, its sound sped up with it (a fast-forward)
+  const fast = playlist && playlist[idx] ? speedOf(playlist[idx]) : 1;
+  if (el.playbackRate !== rate * fast) el.playbackRate = rate * fast;
+  if (el.preservesPitch !== (fast === 1)) el.preservesPitch = fast === 1;
   $("playhead").style.display = x === null ? "none" : "block";
   if (x !== null) $("playhead").style.left = `${(x / AX) * 100}%`;
   // the file name alone fits the control row; the tooltip has the full path
@@ -945,7 +956,7 @@ function skip(dt) {
   if (!playlist) return seek(Math.min(Math.max(0, now() + dt), D.durationSeconds - 0.05), go);
   // inside a playlist, skip along what plays: removed ranges never count
   const i = Math.min(idx, playlist.length - 1), [s, e] = playlist[i];
-  const x = spans(playlist.slice(0, i)) + Math.min(Math.max(0, now() - s), e - s);
+  const x = spans(playlist.slice(0, i)) + Math.min(Math.max(0, now() - s), e - s) / speedOf(playlist[i]);
   const [j, t] = programAt(Math.min(Math.max(0, x + dt), spans(playlist) - 0.05), playlist);
   idx = j; seek(t, go);
 }
@@ -1011,14 +1022,15 @@ function drawCuts() {
     // dropped selects greyed out on top
     let acc = 0, start = 0, title = null, n = 0;
     const blocks = [], lines = [], gone = [];
-    D.program.forEach(([s, e, id], i) => {
+    D.program.forEach((r, i) => {
+      const id = r[2];
       if (D.chapters[i] !== undefined) {
         if (title !== null || i > 0) blocks.push([start, acc, title ?? ""]);
         start = acc; title = D.chapters[i];
       }
       if (i > 0 && D.program[i - 1][2] !== id) lines.push(acc);
-      if (dropped.has(id)) gone.push([acc, acc + (e - s)]);
-      acc += e - s;
+      if (dropped.has(id)) gone.push([acc, acc + len(r)]);
+      acc += len(r);
     });
     blocks.push([start, acc, title ?? ""]);
     blocks.forEach(([a, b, t]) => seg("lane-base", a, b, "program", t, { background: n++ % 2 ? "var(--keep2)" : "var(--keep)" }));
@@ -1042,11 +1054,11 @@ function drawMarks() {
     // a mark where each talking head to record will play
     let acc = 0;
     const ends = {};
-    D.program.forEach(([s, e, id]) => { acc += e - s; ends[id] = acc; });
+    D.program.forEach((r) => { acc += len(r); ends[r[2]] = acc; });
     const footageAxis = (t) => {
       // a time inside a removed pause lands where the footage carries on
       let a = 0;
-      for (const [s, e] of D.keeps) { if (t <= e) return a + Math.max(0, t - s); a += e - s; }
+      for (const r of D.keeps) { if (t <= r[1]) return a + Math.max(0, t - r[0]) / speedOf(r); a += len(r); }
       return a;
     };
     PICKUPS.filter((p) => !dropped.has(p.id) && (placed(p) || nearTime(p) !== null)).forEach((p) => {
@@ -1191,7 +1203,7 @@ function vlogView() {
     <div class="item ${off ? "dropped" : ""}">
       <div class="top"><span class="id">${s.id}</span>${s.title ? `<strong>${esc(s.title)}</strong>` : ""}</div>
       <div class="tag">${esc(s.where)}  ·  ${fmt(spans(s.keeps))} in the ${PROGRAM.toLowerCase()}</div>
-      ${s.beat || s.role || s.raw ? `<div class="chips">${[s.beat, s.role !== s.beat ? s.role : ""].filter(Boolean).map((t) => `<span class="chip">${esc(t)}</span>`).join("")}${s.raw ? `<span class="chip raw" title="plays as it happened: no silence or retake cuts inside">raw</span>` : ""}</div>` : ""}
+      ${s.beat || s.role || s.raw || s.speed !== 1 ? `<div class="chips">${[s.beat, s.role !== s.beat ? s.role : ""].filter(Boolean).map((t) => `<span class="chip">${esc(t)}</span>`).join("")}${s.raw ? `<span class="chip raw" title="plays as it happened: no silence or retake cuts inside">raw</span>` : ""}${s.speed !== 1 ? `<span class="chip raw" title="plays faster, with its sound sped up">${s.speed}x</span>` : ""}</div>` : ""}
       ${s.intent ? `<p class="intent">${esc(s.intent)}</p>` : ""}
       ${s.text ? `<p>${esc(s.text)}</p>` : ""}
       ${s.why ? `<p class="tag">${esc(s.why)}</p>` : ""}

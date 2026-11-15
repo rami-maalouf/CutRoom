@@ -189,11 +189,13 @@ def write_timeline(
             # a constant retime: the clip's own time runs from its start, and each
             # frame of it plays `speed` frames of the source. preservesPitch 0:
             # the sound speeds up with the picture, like a fast-forward
-            t0 = Fraction(a["tc"] + start_fr) / fps
+            # times on the file's own frame grid, like every other clip time
+            f0 = a["tc"] + start_fr
+            src_end = f0 + n * speed
+            value_end = at(int(src_end), fps) if src_end.denominator == 1 else _rt(src_end / fps)
             inner += (f'\n            <timeMap preservesPitch="0">'
-                      f'\n              <timept time="{_rt(t0)}" value="{_rt(t0)}" interp="linear"/>'
-                      f'\n              <timept time="{_rt(t0 + Fraction(n) / fps)}" '
-                      f'value="{_rt(t0 + Fraction(n) * speed / fps)}" interp="linear"/>'
+                      f'\n              <timept time="{at(f0, fps)}" value="{at(f0, fps)}" interp="linear"/>'
+                      f'\n              <timept time="{at(f0 + n, fps)}" value="{value_end}" interp="linear"/>'
                       f'\n            </timeMap>')
         if i in chapters:
             inner += (f'\n            <chapter-marker start="{clip_at(start_fr)}" '

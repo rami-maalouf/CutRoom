@@ -21,12 +21,13 @@ A finished vlog (one file) or the CutRoom project it was cut from. Read the whol
 
 | Beat | What it does | Length |
 |---|---|---|
+| Presents | the first frame: "the chalant society" with "presents" under it (`{"kind": "brand", "presents": true, "before": 0}`) | 2 s |
+| Title | the second frame: the vlog's title on one title card ("bad advice, good people.") | 1.6 s |
 | Premise | the first words say what this is ("Today we're in Eaton Centre giving out free bad career advice") | 4-7 s |
-| Title | one or two title cards from the premise's own words ("bad advice." / "good people.") | 1-1.2 s each |
 | Build | 3-6 moments of people reacting: comic exchanges, surprises, the awkward start. Show, never explain | 1-6 s each |
 | Turn | the moment it becomes something more (a reset card, a stranger joins in) | |
 | Payoff | the shared high: singing together, the cheer. It plays long and live | 10-16 s |
-| Close | optional brand card: "the chalant society" | 2.4 s |
+| Close | the payoff's last moment. No brand card here when the reel opened with "presents" | |
 
 Rules:
 
@@ -35,7 +36,8 @@ Rules:
 - **Verbatim and complete.** Every beat starts and ends on a whole sentence or a whole reaction; check the first and last words that play (the review page's edge checks, then by ear).
 - **Live music stays live.** When people sing, the song plays with its own sound: no captions on lyrics, the background song out.
 - **Chronological** unless a flash-forward is the hook.
-- **Not from the reference:** no creator name card ("rami. presents"), no "that's it." ending (Rami, 2026-11-15). The Chalant Society card is the optional sign-off.
+- **The opening (Rami, 2026-11-15):** first frame "the chalant society presents", second frame the vlog's title (its published title: ask when you do not know it), then the footage.
+- **Not from the reference:** no creator name card ("rami. presents"), no "that's it." ending (Rami, 2026-11-15).
 
 Write the list for the user as: beat, the quote, the source time, the played length, and the total. Wait for the yes.
 
@@ -51,18 +53,18 @@ One short in the project file with a `"reel"` block. Segment keys beyond `start`
    {"start": 568.03, "end": 581.5, "beat": "a thousand years", "music": "out", "captions": false, "label": "A Thousand Years"}],
  "reel": {
    "style": "joy",
-   "cards": [{"kind": "title", "text": "bad advice.", "before": 1},
+   "cards": [{"kind": "brand", "presents": true, "before": 0},
+             {"kind": "title", "text": "bad advice, good people.", "before": 0},
              {"kind": "plain", "text": "new plan.", "before": 2, "music": "out"},
-             {"kind": "insert", "file": "/abs/meme.mp4", "start": 0, "end": 0.56, "before": 2},
-             {"kind": "brand", "before": 3}],
+             {"kind": "insert", "file": "/abs/meme.mp4", "start": 0, "end": 0.56, "before": 2}],
    "overlays": [{"kind": "cheer", "text": "WE KILLED IT", "at": "We killed it"}],
    "fix": {"Eden Center": "Eaton Centre"},
    "drop": ["have to let it go"],
-   "music": {"options": [{"song": "walking-on-sunshine", "start": 45.6, "why": "..."}], "chosen": null}}}
+   "music": {"options": [{"song": "walking-on-sunshine", "hit": 51.7, "why": "..."}], "chosen": null}}}
 ```
 
 - Segment: `music` is `bed` (default: under speech), `out` (live singing, a punchline that needs silence) or `up` (no speech, a montage); `captions: false` for singing; `label` names a song on screen; `fix` corrects the transcript for this segment only (Whisper misses other languages); `gain` for a loud clip.
-- Cards: `before` is the segment index they play before (the number of segments = at the end). `title` (red serif), `plain` (a white reset line), `brand` (the chalant society; no text needed), `insert` (a short clip, a reaction meme). Cards play with music `up` unless `music` says otherwise.
+- Cards: `before` is the segment index they play before (the number of segments = at the end). `title` (red serif), `plain` (a white reset line), `brand` (the chalant society; no text needed; `"presents": true` adds "presents" under it for the opening), `insert` (a short clip, a reaction meme). Cards play with music `up` unless `music` says otherwise.
 - Overlays: `cheer` (one big line on the payoff, at the words) and `label`.
 - `fix` and `drop` (caption phrases to remove, such as lyrics Whisper heard) apply to the whole reel.
 
@@ -70,7 +72,7 @@ Run `cutroom review <source>`: the Shorts tab plays the reel's footage without c
 
 ## 4. Songs
 
-Recommend 4-6 songs that fit the feeling of this video, not one default: Rami wants options and picks with you. Mix the obvious choice (the reference's own song) with ones that fit this footage (night, crowd, singing, a city). For each: `reel.py song add "Artist - Title" --slug x` (the library is `~/.media/music`, shared by every project), check the title it found (not a cover or live take), then `reel.py song lyrics x` and start the song so a strong line (the chorus, a lyric that matches the moment) lands on the first title card. Write one sentence of why for each: the audition page shows it.
+Recommend 4-6 songs that fit the feeling of this video, not one default: Rami wants options and picks with you. Mix the obvious choice (the reference's own song) with ones that fit this footage (night, crowd, singing, a city). For each: `reel.py song add "Artist - Title" --slug x` (the library is `~/.media/music`, shared by every project), check the title it found (not a cover or live take), then `reel.py song lyrics x` and set `"hit"` to the second of the song where a strong line starts (the chorus, a lyric that matches the moment): that line lands on the title card, wherever the cards move. `"start"` (the second the song starts from) is the fixed alternative. Write one sentence of why for each: the audition page shows it.
 
 Commercial songs are for choosing. Before posting, Rami adds the chosen song from the platform's music library, or uses a licensed one.
 

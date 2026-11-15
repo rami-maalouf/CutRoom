@@ -106,7 +106,7 @@ class Job:
     def stem(self) -> str:
         return self.src.name if self.kind == "folder" else self.src.stem
 
-    def clean(self, ranges: list[Range], raw: bool = False) -> list[Range]:
+    def clean(self, ranges: list[Range], raw: bool = False, pads: tuple[float, float] | None = None) -> list[Range]:
         # snap chosen ranges to words, never past the edges of their own clip,
         # then keep only their clean parts. a raw moment plays as it happened:
         # only manual cuts are taken out of it.
@@ -119,7 +119,13 @@ class Job:
             snapped = []
             for s, e in ranges:
                 b0, b1 = next(((a, b) for a, b in bounds if a <= s < b), (0.0, acc))
-                a, b = snap_range(words, s, e)
+                a, b = snap_range(words, s, e, *pads) if pads else snap_range(words, s, e)
+                if pads:
+                    # tight: also pull loose edges in to the first and last words
+                    inside = [w for w in words if w["startMs"] >= a and w["endMs"] <= b]
+                    if inside:
+                        a = max(a, inside[0]["startMs"] - pads[0])
+                        b = min(b, inside[-1]["endMs"] + pads[1])
                 snapped.append((max(a, b0), min(b, b1)))
             ranges = snapped
         if raw:
@@ -673,7 +679,9 @@ def export_reel_job(job, item: dict, dst: Path | None) -> Path:
     pieces = []
     for n, seg in enumerate(item.get("segments") or [item]):
         rng = project.segments({"segments": [seg]}, job.offsets)
-        for file, a, b, _ in job.media_segments(job.clean(rng, raw=raw)):
+        # a tight reel keeps only a breath around the words: 40 ms before, 100 ms after
+        pads = (40.0, 100.0) if item["reel"].get("tight") else None
+        for file, a, b, _ in job.media_segments(job.clean(rng, raw=raw, pads=pads)):
             # word times are on the timeline: a and b are inside the clip
             lo = _clip_start(job, file) + a
             hi = lo + (b - a)

@@ -31,7 +31,7 @@ From the Expo team's notes on the SDK 58 video (2026-10-16).
 
 ## Highlight reels
 
-- **Feel, not the reference's signature (2026-11-15, bad-advice reel).** The look follows tinodoesnyc's street episodes, but not his name card ("rami. presents...") and not his "that's it." ending. Every reel opens on "the chalant society presents" (first frame), then the vlog's title (second frame), then the footage (Rami, 2026-11-15). 30 to 90 seconds, decided by the moments, not 60 exactly. The song is never assumed: recommend 4-6 that fit this video, audition each on the same cut, and pick together.
+- **Feel, not the reference's signature (2026-11-15, bad-advice reel).** The look follows tinodoesnyc's street episodes, but not his name card ("rami. presents...") and not his "that's it." ending. Every reel opens on the premise footage ("Today we're in Eaton Centre..."), then "the chalant society presents", then the vlog's title, each card about 1.3 s, short (Rami, 2026-11-15). 30 to 90 seconds, decided by the moments, not 60 exactly. The song is never assumed: recommend 4-6 that fit this video, audition each on the same cut, and pick together.
 
 ## Vlogs
 

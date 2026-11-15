@@ -21,9 +21,9 @@ A finished vlog (one file) or the CutRoom project it was cut from. Read the whol
 
 | Beat | What it does | Length |
 |---|---|---|
-| Presents | the first frame: "the chalant society" with "presents" under it (`{"kind": "brand", "presents": true, "before": 0}`) | 2 s |
-| Title | the second frame: the vlog's title on one title card ("bad advice, good people.") | 1.6 s |
-| Premise | the first words say what this is ("Today we're in Eaton Centre giving out free bad career advice") | 4-7 s |
+| Premise | the first frames: the first words say what this is ("Today we're in Eaton Centre giving out free bad career advice") | 4-7 s |
+| Presents | right after the premise: "the chalant society" with "presents" under it (`{"kind": "brand", "presents": true, "before": 1}`) | 1.3 s |
+| Title | then the vlog's title on one title card ("bad advice, good people.", `"before": 1`) | 1.3 s |
 | Build | 3-6 moments of people reacting: comic exchanges, surprises, the awkward start. Show, never explain | 1-6 s each |
 | Turn | the moment it becomes something more (a reset card, a stranger joins in) | |
 | Payoff | the shared high: singing together, the cheer. It plays long and live | 10-16 s |
@@ -36,7 +36,7 @@ Rules:
 - **Verbatim and complete.** Every beat starts and ends on a whole sentence or a whole reaction; check the first and last words that play (the review page's edge checks, then by ear).
 - **Live music stays live.** When people sing, the song plays with its own sound: no captions on lyrics, the background song out.
 - **Chronological** unless a flash-forward is the hook.
-- **The opening (Rami, 2026-11-15):** first frame "the chalant society presents", second frame the vlog's title (its published title: ask when you do not know it), then the footage.
+- **The opening (Rami, 2026-11-15):** the premise footage first, then "the chalant society presents", then the vlog's title (its published title: ask when you do not know it), then the build. The cards are short: 1.3 s each (Rami: "the text shouldn't stay for so long"); 1.3 s is also the floor for reading four words.
 - **Not from the reference:** no creator name card ("rami. presents"), no "that's it." ending (Rami, 2026-11-15).
 
 Write the list for the user as: beat, the quote, the source time, the played length, and the total. Wait for the yes.
@@ -53,8 +53,8 @@ One short in the project file with a `"reel"` block. Segment keys beyond `start`
    {"start": 568.03, "end": 581.5, "beat": "a thousand years", "music": "out", "captions": false, "label": "A Thousand Years"}],
  "reel": {
    "style": "joy",
-   "cards": [{"kind": "brand", "presents": true, "before": 0},
-             {"kind": "title", "text": "bad advice, good people.", "before": 0},
+   "cards": [{"kind": "brand", "presents": true, "before": 1},
+             {"kind": "title", "text": "bad advice, good people.", "before": 1},
              {"kind": "plain", "text": "new plan.", "before": 2, "music": "out"},
              {"kind": "insert", "file": "/abs/meme.mp4", "start": 0, "end": 0.56, "before": 2}],
    "overlays": [{"kind": "cheer", "text": "WE KILLED IT", "at": "We killed it"}],

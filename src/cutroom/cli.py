@@ -679,8 +679,9 @@ def export_reel_job(job, item: dict, dst: Path | None) -> Path:
     pieces = []
     for n, seg in enumerate(item.get("segments") or [item]):
         rng = project.segments({"segments": [seg]}, job.offsets)
-        # a tight reel keeps only a breath around the words: 40 ms before, 100 ms after
-        pads = (40.0, 100.0) if item["reel"].get("tight") else None
+        # a tight reel keeps a breath around the words: 80 ms before, 200 ms after
+        # (whisper ends words early: less clips the last syllable)
+        pads = (80.0, 200.0) if item["reel"].get("tight") else None
         for file, a, b, _ in job.media_segments(job.clean(rng, raw=raw, pads=pads)):
             # word times are on the timeline: a and b are inside the clip
             lo = _clip_start(job, file) + a

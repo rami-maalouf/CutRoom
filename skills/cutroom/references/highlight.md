@@ -67,7 +67,7 @@ One short in the project file with a `"reel"` block. Segment keys beyond `start`
 - Cards: `before` is the segment index they play before (the number of segments = at the end). `title` (red serif), `plain` (a white reset line), `brand` (the chalant society; no text needed; `"presents": true` adds "presents" under it for the opening), `insert` (a short clip, a reaction meme). Cards play with music `up` unless `music` says otherwise.
 - Overlays: `cheer` (one big line on the payoff, at the words) and `label`.
 - `fix` and `drop` (caption phrases to remove, such as lyrics Whisper heard) apply to the whole reel.
-- `"tight": true` in the reel block: every piece keeps only 40 ms before its first word and 100 ms after its last (instead of 120/250 ms), and loose edges are pulled in to the words. Use it for a snappy reel (Rami, 2026-11-15: "lots of silent moments"). Split a moment at its pauses into separate pieces; keep a pause that holds a laugh or a reaction.
+- `"tight": true` in the reel block: every piece keeps 80 ms before its first word and 200 ms after its last (instead of 120/250 ms), and loose edges are pulled in to the words. Use it for a snappy reel (Rami, 2026-11-15: "lots of silent moments"). Split a moment only at long pauses (over about 1 s); keep a short pause that is the joke's timing ("Who would be your buyer?" ... "You.") or holds a reaction. 40/100 ms and splitting at every pause was "a little too aggressive, so you don't really see or hear the full thing" (Rami, 2026-11-15).
 
 Run `cutroom review <source>`: the Shorts tab plays the reel's footage without cards, to check every edge.
 

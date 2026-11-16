@@ -50,7 +50,7 @@ def test_a_reel_job_needs_the_reel_block(talk):
 
 @needs_ffmpeg
 def test_a_tight_reel_keeps_only_a_breath_around_the_words(talk):
-    # "tight": 40 ms before the first word and 100 ms after the last, instead of
+    # "tight": 80 ms before the first word and 200 ms after the last, instead of
     # the usual air: a snappy reel has no pauses at its joins
     seg = [{"start": 8.0, "end": 10.0}]
     write(talk, [{"id": "S1", "raw": True, "reel": REEL, "segments": seg}])
@@ -60,5 +60,5 @@ def test_a_tight_reel_keeps_only_a_breath_around_the_words(talk):
     main(["export", str(talk), "S1", "--reel"])
     tight = json.loads((talk.parent / "talk-S1.reel.json").read_text())["pieces"][0]
     assert tight["end"] - tight["start"] < loose["end"] - loose["start"]
-    assert 0.03 <= tight["words"][0][0] <= 0.05
-    assert (tight["end"] - tight["start"]) - tight["words"][-1][1] <= 0.11
+    assert 0.07 <= tight["words"][0][0] <= 0.09
+    assert (tight["end"] - tight["start"]) - tight["words"][-1][1] <= 0.21

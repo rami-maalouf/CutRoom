@@ -1,32 +1,83 @@
 # CutRoom
 
-Edit real footage into a finished cut, and find the shorts inside it. Four kinds of video:
+CutRoom is a command-line video editor for footage you've already recorded. Give it a video file, a Screen Studio project, or a folder of clips. It transcribes speech locally, finds long pauses and likely retakes, and gives you a browser preview of the proposed cut before you export. Your source footage stays intact.
 
-- a **talking head**: one person talking (a talk to camera, a story, an interview, a podcast, hours of it in several files);
-- an **explainer**: one person teaching or demoing, switching between camera, screen (code, diagrams, dashboards) and live demos, often recorded in Screen Studio;
-- a **reaction**: one person watching a video and commenting on it, with the video's sound as a second voice (Screen Studio's system audio);
-- a **vlog**: a folder of clips from a shoot, a trip or an event.
+Use it to clean up a talking-head recording, keep the on-screen action in a demo, cut a Screen Studio reaction with two audio tracks, or build a vlog from a shoot. You can also review shorter clips from a longer recording and export the ones you pick.
 
-CutRoom removes silences and retakes, plays any cut on a review page without rendering (on a computer or a phone), and exports Final Cut Pro / DaVinci Resolve timelines (FCPXML), mp4 files, cleaned Screen Studio projects, and shorts as FCPXML or as their own Screen Studio project. It also joins several Screen Studio recordings into one project.
+## Get started with one video
 
-The CLI is deterministic: the same footage, transcript and project file always give the same cut. The editorial judgment (which moments tell the story) comes from an AI agent following the bundled skill ([`skills/cutroom`](skills/cutroom/SKILL.md)), and from you on the review page.
+### Install
 
-## Install
-
-CutRoom needs [uv](https://docs.astral.sh/uv/) and [ffmpeg](https://ffmpeg.org/download.html) on `PATH`.
+Install [uv](https://docs.astral.sh/uv/) and [FFmpeg](https://ffmpeg.org/download.html), with `ffmpeg` and `ffprobe` available on your PATH. Then install CutRoom with Python 3.11. uv can download that interpreter if needed.
 
 ```bash
-uv tool install git+https://github.com/rami-maalouf/CutRoom
-bunx skills add rami-maalouf/CutRoom -g     # the agent skill (or: npx skills add rami-maalouf/CutRoom -g)
+uv tool install --python 3.11 git+https://github.com/rami-maalouf/CutRoom
 cutroom --version
 ```
+
+### Preview and export
+
+Use a short MP4 with an audio track for your first run. Replace `talk.mp4` with its path:
+
+```bash
+cutroom review talk.mp4 --open
+```
+
+The first transcription downloads the Whisper speech model (about 1.6 GB). Transcription runs on your machine and saves word timings in `talk.transcript.json` for later runs. The review command creates `talk.review.html` and opens it in your browser. Press play to hear the suggested edit. The page plays the original file and skips the cut ranges, so there is no video render to wait for.
+
+Open **Cuts** to listen to the result of a retake cut or hear what was removed. To restore a cut for the next run, add its time range to `edits.keeps` in `talk.cutroom.json`, or use Reject and copy the review feedback to the agent helping with the edit. You can also keep a range for one run with `--keep 12.4-15.8`. Pass the same options when you export.
+
+When the cut is ready, choose an output:
+
+```bash
+# Render a new video next to the source
+cutroom export talk.mp4 clean --format mp4
+
+# Write an editable timeline next to the source
+cutroom export talk.mp4 clean
+```
+
+These commands produce `talk-clean.mp4` and `talk-clean.fcpxml`, respectively, on the first export. Import the FCPXML into Final Cut Pro or DaVinci Resolve to keep editing. The timeline references the source file, so keep the original media available when you import it.
+
+## What CutRoom does for you
+
+| What you have | How to use it |
+|---|---|
+| A talk, interview, podcast, or camera recording | Review a first pass that shortens long pauses and looks for restarted sentences. Use `--pacing relaxed` to leave more room around the words. |
+| A Screen Studio demo or tutorial | Review the audio, then run `cutroom project demo.screenstudio --yes` to create a trimmed copy when there are cuts. CutRoom can keep pauses around clicks and keystrokes so viewers still see the action. Open the copy in Screen Studio to review the picture and export the video. |
+| A Screen Studio reaction | Set `"style": "reaction"` in `demo.cutroom.json` beside the project. With system audio recorded separately, CutRoom can keep the watched video's audio when it cuts a mic retake and trim pauses where both tracks are quiet. [Reaction workflow](skills/cutroom/references/reaction.md) |
+| Several Screen Studio recordings from one setup | Run `cutroom join part1.screenstudio part2.screenstudio --output both.screenstudio` to make one project in the order you supplied. It uses the first project's look and layout. |
+| A folder of footage for a vlog | Run `cutroom digest weekend` to index the clips with transcripts and contact sheets, then choose the ranges and order that tell the story. Review the edit with `cutroom review weekend --open` and export a timeline with `cutroom export weekend vlog`. [Vlog workflow](skills/cutroom/references/vlog.md) |
+| A long recording with potential shorts | Add candidate clips to the project file, then watch, pick, or reject them on the **Shorts** tab. `cutroom export talk.mp4 S1` writes a timeline for the candidate named `S1`. [Shorts workflow](#shorts) |
+
+For a cleanup, CutRoom can go from a source file to a proposed cut on its own. For a story edit, someone chooses the scenes worth keeping, their order, and which moments work as shorts. You can do that by hand in [the project file](#the-project-file) or use an agent with the bundled [CutRoom skill](skills/cutroom/SKILL.md). The agent can draft a story outline and propose clips for you to review. The CLI reads those decisions and plays or exports the resulting edit.
+
+To install the optional agent skill:
+
+```bash
+bunx skills add rami-maalouf/CutRoom -g
+```
+
+## Choose an output
+
+| Output | Use it for |
+|---|---|
+| **MP4** | A playable video rendered from one source video. |
+| **FCPXML** | An editable timeline for a single video or a folder of clips. It links to the original media and can carry chapter markers and select speed changes. |
+| **Screen Studio project** | An editable copy of a recording with cuts applied in recorded order, without re-encoding. Render it inside Screen Studio. |
+| **Shorts text job** (`.text.json`) | Hand off a short's approved headline and calls to action to the `shorts-text` skill in OpenMontage. CutRoom needs the finished short video for this handoff. |
+| **Highlight reel job** (`.reel.json`) | Hand off the chosen footage ranges, word timings, and reel settings to the `highlight-reel` skill in OpenMontage for titles, captions, and music. [How to set up a reel](skills/cutroom/references/highlight.md) |
+
+The two JSON handoffs supply instructions and timing for the corresponding skill to render.
+
+## Transcription settings
 
 | Platform | Transcription backend | Notes |
 |---|---|---|
 | macOS, Apple Silicon | mlx-whisper (Metal) | fastest; the default |
 | Linux, Windows, Intel Mac | faster-whisper (CTranslate2, CPU or CUDA) | same Whisper weights; picks CUDA automatically when present |
 
-The first transcription downloads Whisper large-v3-turbo (about 1.6 GB). Both backends run the same weights; their transcripts can still differ in small ways. Force a backend with `--backend mlx|faster-whisper` or `CUTROOM_BACKEND`. To work on CutRoom itself and use your checkout everywhere: `uv tool install --editable .`
+Both backends run Whisper large-v3-turbo. Their transcripts can differ in small ways. Set `--backend mlx` or `--backend faster-whisper` on an individual command, or set `CUTROOM_BACKEND` for your environment.
 
 ## Styles and depths
 
@@ -45,33 +96,25 @@ A story-first edit: a brief, then a story outline (`story.md`) that you approve 
 
 ## Commands
 
+Run `cutroom --help` to list commands or `cutroom export --help` to see the options for one command.
+
 ```bash
-# talking head or explainer
-cutroom review talk.mp4 --open                     # plan the cut and open the review page
-cutroom script talk.mp4                            # read-through: the cut as a script
-cutroom video talk.mp4 --yes --export fcpxml       # talk-clean.fcpxml, no re-encode (follows selects)
-cutroom video talk.mp4 --yes                       # talk-clean.mp4
-cutroom project ~/Movies/demo.screenstudio --yes   # demo-clean.screenstudio (no re-encode)
-cutroom join part1.screenstudio part2.screenstudio --output both.screenstudio   # one project, the recordings as sessions
+cutroom script talk.mp4                          # read the edit as a script in playback order
+cutroom check talk.mp4 R1                        # transcribe both sides of retake cut R1
+cutroom transcribe talk.mp4                      # write word timings without planning an edit
+cutroom review talk.mp4 --serve                  # review on a phone on the same Wi-Fi
+cutroom import talk.mp4 edited.fcpxml            # reuse cuts from a compatible Final Cut timeline
 
-# vlog
-cutroom digest ~/Movies/weekend --shards 5         # transcripts, contact sheets, digest shards for agents
-cutroom candidates ~/Movies/weekend --write-selects --story-order   # agents' picks -> selects
-cutroom review ~/Movies/weekend --open             # the vlog by chapter, played from the original files
-cutroom export ~/Movies/weekend vlog S1 S2         # cutroom/exports/weekend-vlog.fcpxml and the shorts
+cutroom candidates weekend --write-selects --story-order  # apply candidate files already in the project
+cutroom export weekend vlog S1 S2                # write the main timeline and two short timelines
 
-# every style
-cutroom review <source> --serve                    # the review page on your phone (url and qr code)
-cutroom export <source> clean|vlog|S3|V7           # FCPXML (or --format mp4) of the program, a short, a select
-cutroom export final.mov S2 --screenstudio e2e-1.screenstudio   # and e2e-1-S2.screenstudio: the project cut to that short
-cutroom export final.mov S6 --text S6-export.mp4    # S6-export.text.json: its approved headline and calls to action, for shorts-text
-cutroom import talk.mp4 edited-in-fcp.fcpxml       # a timeline edited by hand in Final Cut becomes the edit
-cutroom frames talk.mp4 S1 S3                      # a grid of frames over what each short plays: camera, screen or demo?
-cutroom check talk.mp4 M3 R1                       # each cut as it sounds: a short clip around the join, transcribed
-cutroom transcribe talk.mp4                        # only the word-level transcript cache
+cutroom frames final.mov S1 S2                   # see frames from two short candidates
+cutroom export final.mov S2 --screenstudio demo.screenstudio  # also cut the source Screen Studio project to S2
+cutroom export final.mov S2 --text S2-export.mp4  # write S2-export.text.json for an existing finished export
+cutroom export final.mov S5 --reel               # write final-S5.reel.json when S5 has reel settings
 ```
 
-Flags for every command that plans a cut:
+Use these flags on commands that plan a cut. The command's help lists which ones it accepts.
 
 | Flag | Effect |
 |---|---|
@@ -95,9 +138,9 @@ Flags for every command that plans a cut:
 
 ## How a cut is made
 
-1. **Transcribe** locally, word by word, cached (`<name>.transcript.json`, or one per clip in `<folder>/cutroom/transcripts/`). Re-plans after the first take seconds.
+1. **Transcribe** locally, word by word, cached (`<name>.transcript.json`, or one per clip in `<folder>/cutroom/transcripts/`). Later plans reuse the cached transcript.
 2. **Pauses**: ffmpeg's `silencedetect`, shaped by the pacing preset.
-3. **Retakes** (talking head and explainer): a later sentence (within 60 s) that opens with the same words replaces the earlier takes; restart phrases ("scratch that", "take two") cut their sentence. In a folder, a retake only applies when it lies completely inside one select or short.
+3. **Retakes** (enabled by default for talking heads, explainers, and reactions): a later sentence (within 60 s) that opens with the same words replaces the earlier takes; restart phrases ("scratch that", "take two") cut their sentence. In a folder, a retake only applies when it lies completely inside one select or short.
 4. **Screen actions** (Screen Studio): a pause that contains a click or keystroke stays on screen.
 5. **Cleanup**: words Whisper invented inside silence are dropped; tiny wordless fragments between cuts are absorbed.
 6. **Selects** (when the story chose moments): each is snapped to whole words with a little air, never past its own clip, and its clean parts play in the story's order. A select marked `"raw": true` plays exactly as recorded.
@@ -157,21 +200,19 @@ For a Screen Studio project, what you already trimmed in Screen Studio counts as
 
 Before a vlog has selects, the player is labelled "All footage": it plays the whole shoot, not a cut.
 
-If you then edit by hand in Final Cut Pro and want the agent to continue from there: File > Export XML, then `cutroom import <video> <exported.fcpxml>`. The Final Cut timeline becomes the edit (plain clips in source order; compound, multicam and retimed clips are refused).
+To carry manual edits back from Final Cut Pro, choose **File > Export XML**, then run `cutroom import talk.mp4 edited.fcpxml`. Import supports plain clips in source order. Compound, multicam and retimed clips are refused.
 
 **On a phone:** `cutroom review <source> --serve` also serves the page and the project's media on your local network, and prints a URL and a QR code to scan (same Wi-Fi). On a phone the player stays on top while you scroll, a tap plays or pauses, a double tap on the left or right skips 10 s, and **Send to agent** writes the feedback to `cutroom/feedback.md` (or `<name>.feedback.md`) for the agent to read. Reload the page after the agent edits the project: it re-plans when the project file or the story changes. The URL carries a random token and only the project's own media files are served; stop the server with ctrl-c. macOS may ask once to allow incoming connections. 4K footage plays over Wi-Fi, but a weak connection can stutter.
 
-Why iterate here and not in Final Cut: every FCPXML import creates a new project, and Final Cut can copy the media into the library (one measured library held 43.9 GB of copied source files). Import once, at the end.
-
 ## Shorts
 
-A short is a moment that stands on its own: no word in it points at something outside it. The agent finds them, CutRoom stores, checks, plays and exports them, and you pick them on the Shorts tab. The rules for a good short are in [`core.md`](skills/cutroom/references/core.md#shorts).
+A short is a moment that stands on its own: no word in it points at something outside it. You or your agent choose candidate ranges. CutRoom checks the candidates, plays them on the Shorts tab, and exports the ones you pick. The rules for a good short are in [`core.md`](skills/cutroom/references/core.md#shorts).
 
 - **From a finished cut** (a talking head, an explainer, a vlog): the agent reads the transcript, writes candidates under `shorts` with a title, a reason, a theme, scores and a rank, and checks every edge by ear.
 - **From hours of recording that will never be one edit** (a life story in 14 files): link the files into one folder, set `"style": "talking-head"`, and follow [`shorts.md`](skills/cutroom/references/shorts.md): chapter agents with a checker, one judge across all of them, an edge check by ear. The first run turned 4 hours into 83 ranked candidates.
 - **From an explainer**: the words are not enough. `cutroom frames <source> S1 S2` shows a grid of frames over each short, the edge checks flag words that need the screen ("right here") or earlier context ("as I mentioned"), and each short is tagged `camera`, `screen` or `mixed` for its vertical version. See [`explainer.md`](skills/cutroom/references/explainer.md).
 - **Checks**: each short shows what to check before you pick it: an opening that leans on what came before, an ending cut off mid-sentence, words that need the screen or point to earlier, and a phrase said twice close together. `cutroom review` prints them too.
-- **Text**: a short to post gets a headline and calls to action in its `copy`. The Shorts tab shows each text with the words it starts on; edit it there and approve it (A). `cutroom export <source> S6 --text <export.mp4>` then writes the job for the shorts-text skill (OpenMontage, `.agents/skills/shorts-text`), which renders the 9:16 master with the text on it.
+- **Text**: a short to post gets a headline and calls to action in its `copy`. The Shorts tab shows each text with the words it starts on. Edit it there, approve it (A), and apply the review feedback to the project file before exporting. `cutroom export <source> S6 --text <export.mp4>` then writes the job for the shorts-text skill (OpenMontage, `.agents/skills/shorts-text`), which renders the 9:16 master with the text on it.
 - **Out**: `cutroom export <source> S1 S4` writes FCPXML (or `--format mp4`). When the video was made in Screen Studio, `--screenstudio <project>` also writes `<project>-S1.screenstudio`: the project cut down to that short, found by its words, so the time codes of the finished video do not matter (an intro added later, a Final Cut trim, retakes still in the recording). Give `--screenstudio` once per project for a video made from several. The words are matched against what the project's slices play, transcribed as one piece of audio (cached as `<project>.shown.transcript.json`), because Whisper on the whole recording often starts a sentence seconds early, inside the pause before it.
 
 ## A vlog from a folder of clips
@@ -211,8 +252,10 @@ CutRoom stops at files. These happen in GUI apps, done by a person or a computer
 
 ## Development
 
+To install the CLI from your checkout, run `uv tool install --python 3.11 --editable .`.
+
 ```bash
-uv sync
+uv sync --python 3.11
 uv run pytest
 ```
 

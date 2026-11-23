@@ -4,6 +4,20 @@ CutRoom is a command-line video editor for footage you've already recorded. Give
 
 Use it to clean up a talking-head recording, keep the on-screen action in a demo, cut a Screen Studio reaction with two audio tracks, or build a vlog from a shoot. You can also review shorter clips from a longer recording and export the ones you pick.
 
+## Try CutRoom with your agent
+
+Copy and paste this into your agent. You can start with a description of your footage and add a file path once you're ready to try it.
+
+```text
+Help me figure out whether CutRoom would be useful for the videos I make.
+
+Read the CutRoom README at https://github.com/rami-maalouf/CutRoom. Ask what I record and which part of editing takes me the most time. If I already told you, use that context.
+
+Explain what CutRoom can do for my footage, what I'd still need to decide or do in my editor, and what I'd get at the end. Give me one concrete first project based on my answer, such as cleaning up a recording, reviewing a few short clips, or building a first cut from a folder of footage.
+
+If I want to try it, help me check the setup and follow the CutRoom skill for my workflow. Ask for the path to one recording or a small folder when you need it. Walk me through reviewing the proposed edit before exporting. If you can't run commands on my machine, give me the exact commands to run and tell me what I should see after each step.
+```
+
 ## Get started with one video
 
 ### Install
